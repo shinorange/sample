@@ -411,120 +411,173 @@ def tex_stone(seed, base):
 
 
 def tex_forge_side():
-    base = (121, 116, 109)
-    mortar = (86, 82, 76)
+    """Beveled stone bricks with per-brick tone and a ragged soot line."""
     px = blank()
+    base = (124, 119, 112)
+    mortar = (76, 72, 66)
     for y in range(16):
         for x in range(16):
             row = y // 4
             offset = 0 if row % 2 == 0 else 4
-            if y % 4 == 3 or (x + offset) % 8 == 7:
-                c = mortar
+            bx = (x + offset) % 8
+            if y % 4 == 3 or bx == 7:
+                c = shade(mortar, noise(x, y, 11, 9) - 4)
             else:
-                c = base
-            c = shade(c, noise(x, y, 11, 13) - 6)
-            if y < 4:  # soot near the mouth
-                c = (clamp(c[0] * 0.55), clamp(c[1] * 0.55), clamp(c[2] * 0.55), 255)
+                brick = (x + offset) // 8 + row * 3
+                c = shade(base, noise(brick, row, 13, 19) - 9)
+                if y % 4 == 0 or bx == 0:
+                    c = shade(c, 13)
+                elif y % 4 == 2 or bx == 6:
+                    c = shade(c, -13)
+                c = shade(c, noise(x, y, 15, 7) - 3)
+            depth = 3 + noise(x, 0, 17, 3)
+            if y < depth:
+                k = 0.42 + 0.14 * y
+                c = (clamp(c[0] * k), clamp(c[1] * k), clamp(c[2] * k), 255)
             px[y][x] = c
     return px
 
 
 def tex_forge_top(lit):
-    px = tex_stone(21, (121, 116, 109))
+    """A stone rim around a bed of distinct coal lumps. Lit, fire glows in the
+    gaps and rims each lump with ember light."""
+    px = blank()
     for y in range(16):
         for x in range(16):
-            if 2 <= x <= 13 and 2 <= y <= 13:
-                if lit:
-                    dx = x - 7.5
-                    dy = y - 7.5
-                    d = (dx * dx + dy * dy) ** 0.5
-                    t = max(0.0, min(1.0, 1.0 - (d - 1.5) / 5.5))
-                    r = 60 + t * 195
-                    g = 28 + t * 172
-                    b = 16 + t * 74
-                    c = (clamp(r), clamp(g), clamp(b), 255)
-                    if noise(x, y, 33, 19) == 0:
-                        c = (255, 240, 180, 255)
-                    elif noise(x, y, 37, 13) == 0 and t < 0.55:
-                        c = (46, 36, 30, 255)  # charred coal poking through
-                else:
-                    c = shade((40, 35, 30), noise(x, y, 44, 15) - 7)
-                    if noise(x, y, 55, 11) == 0:
-                        c = (62, 52, 42, 255)
-                px[y][x] = c
+            px[y][x] = shade((110, 105, 99), noise(x, y, 21, 13) - 6)
+            if x in (0, 15) or y in (0, 15):
+                px[y][x] = shade((88, 84, 79), noise(x, y, 22, 9) - 4)
+    for y in range(2, 14):
+        for x in range(2, 14):
+            if lit:
+                dx = x - 7.5
+                dy = y - 7.5
+                d = (dx * dx + dy * dy) ** 0.5
+                t = max(0.0, min(1.0, 1.0 - (d - 1.0) / 6.0))
+                c = (clamp(105 + t * 150), clamp(30 + t * 180), clamp(12 + t * 90), 255)
+                if noise(x, y, 33, 17) == 0:
+                    c = (255, 242, 190, 255)
+            else:
+                c = shade((36, 32, 28), noise(x, y, 44, 11) - 5)
+            px[y][x] = c
+    for gy in range(3, 13, 4):
+        for gx in range(3, 13, 4):
+            cx = gx + noise(gx, gy, 23, 3) - 1
+            cy = gy + noise(gy, gx, 27, 3) - 1
+            for oy in range(2):
+                for ox in range(2):
+                    px[cy + oy][cx + ox] = shade((40, 36, 33), noise(cx + ox, cy + oy, 29, 11) - 5)
+            px[cy][cx] = shade((58, 52, 47), noise(cx, cy, 31, 7) - 3)
+            if lit:
+                px[cy + 1][cx + 1] = (228, 122, 38, 255)
     return px
 
 
 def tex_anvil_body():
+    """Cast iron: light falls off downward, with faint vertical tool marks."""
     px = blank()
     for y in range(16):
         for x in range(16):
-            c = shade((70, 71, 76), noise(x, y, 66, 11) - 5)
+            base = 80 - y
+            c = (clamp(base - 6), clamp(base - 5), clamp(base), 255)
+            c = shade(c, noise(x, 0, 66, 11) - 5 + noise(x, y, 67, 5) - 2)
             if x in (0, 15) or y in (0, 15):
-                c = shade((55, 56, 60), noise(x, y, 67, 7) - 3)
-            if y > 11:
-                c = shade((c[0] - 8, c[1] - 8, c[2] - 8), 0)
+                c = shade(c, -14)
             px[y][x] = c
     return px
 
 
 def tex_anvil_top():
+    """A worked face: brushed streaks, chamfered edges, hardy and pritchel
+    holes, and years of hammer scars both bright and dark."""
     px = blank()
     for y in range(16):
         for x in range(16):
             if x in (0, 15) or y in (0, 15):
-                c = shade((52, 53, 57), noise(x, y, 71, 7) - 3)
-            elif 3 <= x <= 12 and 3 <= y <= 12:
-                c = shade((104, 105, 112), noise(x, y, 72, 11) - 5)
+                c = shade((50, 51, 55), noise(x, y, 71, 7) - 3)
             else:
-                c = shade((86, 87, 93), noise(x, y, 73, 11) - 5)
+                c = shade((94, 95, 102), noise(0, y, 72, 13) - 6)
+                c = shade(c, noise(x, y, 73, 7) - 3)
+                if 3 <= x <= 12 and 4 <= y <= 11:
+                    c = shade(c, 9)
+                if x == 1 or y == 1:
+                    c = shade(c, 20)
+                if x == 14 or y == 14:
+                    c = shade(c, -16)
             px[y][x] = c
-    # A working anvil has a square hardy hole and a round pritchel hole...
     for hx, hy in ((11, 6), (12, 6), (11, 7), (12, 7)):
-        px[hy][hx] = (38, 39, 43, 255)
-    px[7][3] = (44, 45, 49, 255)
-    # ...and years of hammer scars.
-    for sx, sy in ((5, 5), (6, 9), (8, 4), (9, 10), (4, 8), (7, 7)):
-        px[sy][sx] = shade((122, 123, 130), noise(sx, sy, 74, 9) - 4)
+        px[hy][hx] = (30, 31, 35, 255)
+    px[6][11] = (24, 25, 29, 255)
+    px[8][13] = (120, 121, 128, 255)
+    px[7][4] = (34, 35, 39, 255)
+    for sx, sy in ((5, 5), (6, 9), (8, 4), (9, 10), (4, 11), (7, 7)):
+        px[sy][sx] = shade((124, 125, 132), noise(sx, sy, 74, 9) - 4)
+    for sx, sy in ((6, 6), (10, 8), (5, 10)):
+        px[sy][sx] = shade((70, 71, 78), noise(sx, sy, 75, 7) - 3)
     return px
 
 
 def tex_planks(seed, base, seam, vertical):
+    """Planks with per-plank tone, edge bevels and occasional grain streaks."""
     px = blank()
     for y in range(16):
         for x in range(16):
             k = x if vertical else y
-            c = seam if k % 4 == 3 else base
-            c = shade(c, noise(x, y, seed, 15) - 7)
+            t = y if vertical else x
+            kk = k % 4
+            if kk == 3:
+                c = shade(seam, noise(x, y, seed, 9) - 4)
+            else:
+                plank = k // 4
+                c = shade(base, noise(plank, 0, seed + 1, 17) - 8)
+                if kk == 0:
+                    c = shade(c, 11)
+                elif kk == 2:
+                    c = shade(c, -11)
+                if noise(t // 3, plank, seed + 2, 11) == 0:
+                    c = shade(c, -15)
+                c = shade(c, noise(x, y, seed + 3, 7) - 3)
             px[y][x] = c
     return px
 
 
 def tex_barrel_side():
-    px = tex_planks(81, (122, 84, 48), (86, 58, 32), vertical=True)
+    px = tex_planks(81, (124, 86, 49), (84, 56, 31), vertical=True)
     for y in (2, 3, 12, 13):
         for x in range(16):
-            c = (118, 122, 128) if y in (2, 12) else (92, 96, 102)
-            if x % 5 == 2 and y in (2, 12):
-                c = (152, 156, 162)
+            if y in (2, 12):
+                c = (132, 136, 142)
+                if x % 5 == 2:
+                    c = (160, 164, 170)
+            else:
+                c = (82, 86, 92)
             px[y][x] = (c[0], c[1], c[2], 255)
     return px
 
 
 def tex_barrel_top(water):
-    px = tex_planks(82, (122, 84, 48), (86, 58, 32), vertical=False)
-    for y in range(16):
-        for x in range(16):
-            if 2 <= x <= 13 and 2 <= y <= 13:
-                if water:
-                    c = shade((63, 118, 228), noise(x, y, 83, 13) - 6)
-                    if (x + y) % 5 == 0:
-                        c = (90, 142, 240, 255)
-                    if noise(x, y, 84, 23) == 0:
-                        c = (165, 205, 255, 255)
+    px = tex_planks(82, (124, 86, 49), (84, 56, 31), vertical=False)
+    for y in range(2, 14):
+        for x in range(2, 14):
+            if water:
+                dx = x - 7.5
+                dy = y - 7.5
+                d = (dx * dx + dy * dy) ** 0.5
+                if d > 5.1:
+                    c = shade((34, 70, 150), noise(x, y, 83, 9) - 4)
+                elif 3.0 < d < 3.9:
+                    c = shade((96, 148, 242), noise(x, y, 84, 9) - 4)
                 else:
-                    c = shade((44, 33, 22), noise(x, y, 85, 11) - 5)
-                px[y][x] = c
+                    c = shade((60, 114, 224), noise(x, y, 85, 11) - 5)
+                if noise(x, y, 86, 23) == 0:
+                    c = (178, 212, 255, 255)
+            else:
+                c = shade((62, 44, 26), noise(x, y, 87, 11) - 5)
+                if y % 4 == 1:
+                    c = shade(c, -12)
+                if x <= 3 or y <= 3:
+                    c = shade(c, -16)
+            px[y][x] = c
     return px
 
 
@@ -539,12 +592,35 @@ def tex_whetstone_wheel():
             if d > 1.0:
                 continue
             if d > 0.68:
-                c = shade((106, 106, 100), noise(x, y, 91, 9) - 4)
+                c = shade((104, 104, 98), noise(x, y, 91, 9) - 4)
+                if dx + dy < -0.35:
+                    c = shade(c, 16)
+                elif dx + dy > 0.35:
+                    c = shade(c, -14)
             elif abs(x - 8) <= 1 and abs(y - 6) <= 1:
-                c = (74, 58, 38, 255)
+                c = (70, 55, 36, 255)
+                if x == 8 and y == 6:
+                    c = (128, 132, 140, 255)
             else:
-                c = shade((142, 142, 134), noise(x, y, 92, 13) - 6)
+                c = shade((144, 144, 136), noise(x, y, 92, 11) - 5)
+                if 0.30 < d < 0.52:
+                    c = shade(c, 10)
             px[y][x] = c
+    return px
+
+
+def tex_whetstone_base():
+    px = tex_planks(87, (112, 80, 47), (78, 54, 31), vertical=False)
+    for bx, by in ((2, 7), (13, 7), (2, 8), (13, 8)):
+        px[by][bx] = (52, 44, 32, 255)
+    return px
+
+
+def tex_whetstone_rim():
+    px = tex_stone(93, (124, 124, 118))
+    for y in (7, 8):
+        for x in range(16):
+            px[y][x] = shade((140, 140, 132), noise(x, y, 94, 9) - 4)
     return px
 
 
@@ -559,8 +635,8 @@ BLOCK_TEXTURES = {
     "quenching_barrel_top_water": lambda: tex_barrel_top(True),
     "quenching_barrel_top_empty": lambda: tex_barrel_top(False),
     "quenching_barrel_bottom": lambda: tex_planks(86, (104, 72, 40), (76, 52, 28), vertical=False),
-    "whetstone_base": lambda: tex_planks(87, (110, 78, 46), (80, 56, 32), vertical=False),
-    "whetstone_rim": lambda: tex_stone(93, (122, 122, 116)),
+    "whetstone_base": tex_whetstone_base,
+    "whetstone_rim": tex_whetstone_rim,
     "whetstone_wheel": tex_whetstone_wheel,
 }
 
