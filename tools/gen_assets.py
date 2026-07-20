@@ -1052,6 +1052,11 @@ HAND_PAINTED_ITEMS = {
     "blade_preform",
     "rough_blade",
     "quenched_blade",
+    "tempered_blade",
+    "cracked_blade",
+    "sharp_blade",
+    "sword_guard",
+    "sword_grip",
 }
 
 
