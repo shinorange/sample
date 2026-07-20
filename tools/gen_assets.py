@@ -1044,9 +1044,23 @@ def gen_advancements():
 # Main
 # --------------------------------------------------------------------------
 
+# Textures replaced by hand-made (AI-assisted) art. gen_textures() never
+# overwrites these files — delete one from disk to fall back to generated art.
+HAND_PAINTED_ITEMS = {
+    "iron_bloom",
+    "steel_billet",
+    "blade_preform",
+    "rough_blade",
+    "quenched_blade",
+}
+
+
 def gen_textures():
     for name in ITEM_SPRITES:
-        write_png(os.path.join(ASSETS, "textures", "item", name + ".png"), build_item(name))
+        path = os.path.join(ASSETS, "textures", "item", name + ".png")
+        if name in HAND_PAINTED_ITEMS and os.path.exists(path):
+            continue
+        write_png(path, build_item(name))
     for name, fn in BLOCK_TEXTURES.items():
         write_png(os.path.join(ASSETS, "textures", "block", name + ".png"), fn())
     write_png(os.path.join(ASSETS, "textures", "gui", "forge.png"), tex_gui_forge())
