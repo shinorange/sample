@@ -1,7 +1,10 @@
 package dev.shinorange.swordsmith.block;
 
 import dev.shinorange.swordsmith.core.Heat;
+import dev.shinorange.swordsmith.core.Quality;
+import dev.shinorange.swordsmith.core.QualityData;
 import dev.shinorange.swordsmith.core.Smithing;
+import dev.shinorange.swordsmith.registry.ModComponents;
 import dev.shinorange.swordsmith.registry.ModItems;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -79,11 +82,17 @@ public class QuenchingBarrelBlock extends Block {
 		// The hardening quench itself.
 		if (stack.isOf(ModItems.ROUGH_BLADE)) {
 			if (temp >= Heat.QUENCH_MIN && temp <= Heat.QUENCH_MAX) {
-				player.setStackInHand(hand, new ItemStack(ModItems.QUENCHED_BLADE));
+				ItemStack quenched = new ItemStack(ModItems.QUENCHED_BLADE);
+				Quality.carry(stack, quenched);
+				QualityData data = quenched.getOrDefault(ModComponents.QUALITY, QualityData.EMPTY);
+				quenched.set(ModComponents.QUALITY, data.withQuench(Quality.quenchScore(temp)));
+				player.setStackInHand(hand, quenched);
 				player.sendMessage(Text.translatable("msg.swordsmith.quench_ok"), true);
 				hiss(world, pos, 1.0f);
 			} else if (temp > Heat.QUENCH_MAX) {
-				player.setStackInHand(hand, new ItemStack(ModItems.CRACKED_BLADE));
+				ItemStack cracked = new ItemStack(ModItems.CRACKED_BLADE);
+				Quality.carry(stack, cracked);
+				player.setStackInHand(hand, cracked);
 				player.sendMessage(Text.translatable("msg.swordsmith.quench_crack"), true);
 				world.playSound(null, pos, SoundEvents.ENTITY_ITEM_BREAK, SoundCategory.BLOCKS, 1.0f, 0.8f);
 				hiss(world, pos, 1.0f);

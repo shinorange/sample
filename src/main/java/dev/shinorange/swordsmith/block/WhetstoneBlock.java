@@ -1,6 +1,7 @@
 package dev.shinorange.swordsmith.block;
 
 import dev.shinorange.swordsmith.core.Heat;
+import dev.shinorange.swordsmith.core.Quality;
 import dev.shinorange.swordsmith.item.HeatableItem;
 import dev.shinorange.swordsmith.registry.ModComponents;
 import dev.shinorange.swordsmith.registry.ModItems;
@@ -89,6 +90,7 @@ public class WhetstoneBlock extends Block {
 			player.getItemCooldownManager().set(ModItems.TEMPERED_BLADE, 5);
 			if (progress >= Heat.GRIND_USES) {
 				ItemStack sharp = new ItemStack(ModItems.SHARP_BLADE);
+				Quality.carry(stack, sharp);
 				player.setStackInHand(hand, sharp);
 				player.sendMessage(Text.translatable("msg.swordsmith.stage_complete", sharp.getName()), true);
 				world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.BLOCKS, 0.6f, 1.3f);

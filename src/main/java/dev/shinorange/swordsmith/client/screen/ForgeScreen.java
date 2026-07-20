@@ -69,6 +69,15 @@ public class ForgeScreen extends HandledScreen<ForgeScreenHandler> {
 	}
 
 	@Override
+	protected void drawForeground(DrawContext context, int mouseX, int mouseY) {
+		super.drawForeground(context, mouseX, mouseY);
+		// Always-visible readout under the thermometer.
+		Text label = Text.literal(this.handler.getFireTemp() + "°C");
+		int width = this.textRenderer.getWidth(label);
+		context.drawText(this.textRenderer, label, 153 - width / 2, 74, 0x404040, false);
+	}
+
+	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
 		super.render(context, mouseX, mouseY, delta);
 		this.drawMouseoverTooltip(context, mouseX, mouseY);

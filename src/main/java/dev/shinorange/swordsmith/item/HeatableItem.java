@@ -2,6 +2,7 @@ package dev.shinorange.swordsmith.item;
 
 import dev.shinorange.swordsmith.core.Heat;
 import dev.shinorange.swordsmith.core.HeatData;
+import dev.shinorange.swordsmith.core.QualityData;
 import dev.shinorange.swordsmith.registry.ModComponents;
 import dev.shinorange.swordsmith.registry.ModItems;
 import java.util.List;
@@ -69,6 +70,15 @@ public class HeatableItem extends Item {
 		Integer grind = stack.get(ModComponents.GRIND_PROGRESS);
 		if (grind != null && grind > 0) {
 			tooltip.add(Text.translatable("tooltip.swordsmith.grind", grind, Heat.GRIND_USES).formatted(Formatting.AQUA));
+		}
+		QualityData quality = stack.get(ModComponents.QUALITY);
+		if (quality != null && quality.strikes() > 0) {
+			tooltip.add(Text.translatable("tooltip.swordsmith.craft",
+					Math.round(quality.strikeAverage() * 100f)).formatted(Formatting.YELLOW));
+		}
+		if (quality != null && quality.quenchScore() > 0f) {
+			tooltip.add(Text.translatable("tooltip.swordsmith.quench_quality",
+					Math.round(quality.quenchScore() * 100f)).formatted(Formatting.AQUA));
 		}
 		tooltip.add(Text.translatable(hintKey).formatted(Formatting.GRAY, Formatting.ITALIC));
 	}

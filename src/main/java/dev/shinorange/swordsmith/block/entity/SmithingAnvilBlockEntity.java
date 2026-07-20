@@ -1,7 +1,11 @@
 package dev.shinorange.swordsmith.block.entity;
 
+import dev.shinorange.swordsmith.core.Quality;
+import dev.shinorange.swordsmith.core.QualityData;
 import dev.shinorange.swordsmith.registry.ModBlockEntities;
+import dev.shinorange.swordsmith.registry.ModComponents;
 import dev.shinorange.swordsmith.registry.ModItems;
+import net.minecraft.component.DataComponentTypes;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.block.Block;
@@ -116,9 +120,14 @@ public class SmithingAnvilBlockEntity extends BlockEntity {
 		return "msg.swordsmith.peen_hint";
 	}
 
-	/** The peening is done: the parts become one finished sword. */
+	/** The peening is done: the parts become one sword, as good as its making. */
 	public void finishSword() {
-		workpiece = new ItemStack(ModItems.FORGED_STEEL_SWORD);
+		QualityData data = workpiece.get(ModComponents.QUALITY);
+		float quality = data == null ? 0.7f : data.finalQuality();
+		ItemStack sword = new ItemStack(ModItems.FORGED_STEEL_SWORD);
+		sword.set(ModComponents.SWORD_QUALITY, quality);
+		sword.set(DataComponentTypes.ATTRIBUTE_MODIFIERS, Quality.swordAttributes(quality));
+		workpiece = sword;
 		guard = false;
 		grip = false;
 		pommel = false;

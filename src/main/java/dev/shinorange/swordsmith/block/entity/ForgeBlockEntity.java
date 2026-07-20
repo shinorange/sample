@@ -2,6 +2,7 @@ package dev.shinorange.swordsmith.block.entity;
 
 import dev.shinorange.swordsmith.block.ForgeBlock;
 import dev.shinorange.swordsmith.core.Heat;
+import dev.shinorange.swordsmith.core.Quality;
 import dev.shinorange.swordsmith.core.Smithing;
 import dev.shinorange.swordsmith.registry.ModBlockEntities;
 import dev.shinorange.swordsmith.registry.ModItems;
@@ -192,8 +193,9 @@ public class ForgeBlockEntity extends BlockEntity implements Inventory, NamedScr
 				|| workpiece.isOf(ModItems.SHARP_BLADE);
 	}
 
-	/** Swaps the workpiece in place, keeping its temperature. */
+	/** Swaps the workpiece in place, keeping its temperature and quality history. */
 	private void replaceWorkpiece(ItemStack stack) {
+		Quality.carry(inventory.get(SLOT_WORKPIECE), stack);
 		inventory.set(SLOT_WORKPIECE, stack);
 		markDirtyAndSync();
 	}

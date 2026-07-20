@@ -3,7 +3,10 @@ package dev.shinorange.swordsmith.block;
 import com.mojang.serialization.MapCodec;
 import dev.shinorange.swordsmith.block.entity.SmithingAnvilBlockEntity;
 import dev.shinorange.swordsmith.core.Heat;
+import dev.shinorange.swordsmith.core.Quality;
+import dev.shinorange.swordsmith.core.QualityData;
 import dev.shinorange.swordsmith.core.Smithing;
+import dev.shinorange.swordsmith.registry.ModComponents;
 import dev.shinorange.swordsmith.registry.ModItems;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockRenderType;
@@ -210,23 +213,31 @@ public class SmithingAnvilBlock extends BlockWithEntity {
 			return;
 		}
 
+		// A strike in the bright orange-yellow band is craftsman's work.
+		float score = Quality.strikeScore(temp);
+		boolean perfect = score >= 1.0f;
+		QualityData qualityData = workpiece.getOrDefault(ModComponents.QUALITY, QualityData.EMPTY);
+		workpiece.set(ModComponents.QUALITY, qualityData.addStrike(score));
+
 		anvil.addStrike();
 		Heat.set(world, workpiece, temp - Heat.STRIKE_COOLING);
 		anvil.markWorkpieceChanged();
 		hammer.damage(1, player, hand == Hand.MAIN_HAND ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND);
 		world.playSound(null, pos, SoundEvents.BLOCK_ANVIL_USE, SoundCategory.BLOCKS, 0.7f,
-				0.9f + world.getRandom().nextFloat() * 0.2f);
-		spawnSparks(world, pos, 8, 2);
+				(perfect ? 1.05f : 0.9f) + world.getRandom().nextFloat() * 0.2f);
+		spawnSparks(world, pos, perfect ? 14 : 8, perfect ? 3 : 2);
 
 		if (anvil.getStrikes() >= step.strikes()) {
 			ItemStack next = new ItemStack(step.output());
+			Quality.carry(workpiece, next);
 			Heat.set(world, next, Math.max(Heat.AMBIENT, temp - Heat.STRIKE_COOLING));
 			anvil.setWorkpiece(next);
 			anvil.resetStrikes();
 			player.sendMessage(Text.translatable("msg.swordsmith.stage_complete", next.getName()), true);
 			world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.BLOCKS, 0.6f, 1.1f);
 		} else {
-			player.sendMessage(Text.translatable("msg.swordsmith.forging_progress",
+			player.sendMessage(Text.translatable(
+					perfect ? "msg.swordsmith.forging_progress_perfect" : "msg.swordsmith.forging_progress",
 					anvil.getStrikes(), step.strikes()), true);
 		}
 	}

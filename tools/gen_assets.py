@@ -775,15 +775,18 @@ def tex_gui_forge():
         for gx in range(149, 158):
             px[gy][gx] = (48, 48, 54, 255)
     zones = [
-        (gauge_y(400), gauge_y(150), (111, 168, 220, 255)),   # temper band
-        (gauge_y(720) - 1, gauge_y(720) + 1, (230, 145, 56, 255)),  # forging line
-        (gauge_y(950), gauge_y(780), (204, 65, 37, 255)),     # quench band
-        (gauge_y(1150) - 1, gauge_y(1150) + 1, (255, 217, 102, 255)),  # smelt line
+        (gauge_y(400), gauge_y(150), (111, 168, 220, 255), (36, 52, 68, 255)),   # temper band
+        (gauge_y(720) - 1, gauge_y(720) + 1, (230, 145, 56, 255), (72, 46, 20, 255)),  # forging line
+        (gauge_y(950), gauge_y(780), (204, 65, 37, 255), (66, 24, 16, 255)),     # quench band
+        (gauge_y(1150) - 1, gauge_y(1150) + 1, (255, 217, 102, 255), (78, 66, 34, 255)),  # smelt line
     ]
-    for y0, y1, color in zones:
+    for y0, y1, tick, inner in zones:
         for y in range(min(y0, y1), max(y0, y1) + 1):
-            px[y][161] = color
-            px[y][162] = color
+            px[y][161] = tick
+            px[y][162] = tick
+            # Muted band inside the channel: reach the band, hit the zone.
+            for gx in range(149, 157):
+                px[y][gx] = inner
 
     # Fuel flame silhouette and bellows blast channel.
     draw_flame(px, 28, 35, silhouette=True)
