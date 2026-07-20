@@ -619,6 +619,90 @@ def gui_inset(px, x0, y0, w, h, fill=SLOT_BG):
     px[y0 + h - 1][x0] = fill
 
 
+# Faint tool silhouettes scattered over the panel's free areas, in the style
+# of the classic "watermark pattern" look (design reference: user-provided
+# concept art). 10x10 glyphs, stamped only onto plain background pixels so
+# slots, bevels and gauges are never touched.
+GLYPH_SWORD = [
+    "........xx",
+    ".......xxx",
+    "......xxx.",
+    ".....xxx..",
+    "..x.xxx...",
+    "..xxxx....",
+    "..xxx.....",
+    ".xx.xx....",
+    "xx........",
+    "..........",
+]
+
+GLYPH_PICKAXE = [
+    "..xxxxxx..",
+    ".xxxxxxxx.",
+    "xx..xx..xx",
+    "....xxx...",
+    "...xxx....",
+    "...xx.....",
+    "..xx......",
+    ".xx.......",
+    "xx........",
+    "..........",
+]
+
+GLYPH_AXE = [
+    ".....xxx..",
+    "....xxxxx.",
+    "....xxxxx.",
+    "...xxxx...",
+    "...xx.....",
+    "..xx......",
+    ".xx.......",
+    "xx........",
+    "..........",
+    "..........",
+]
+
+GLYPH_HAMMER = [
+    "...xxxxxx.",
+    "...xxxxxx.",
+    "...xxxxxx.",
+    "....xx....",
+    "...xx.....",
+    "..xx......",
+    ".xx.......",
+    "xx........",
+    "..........",
+    "..........",
+]
+
+GLYPH_SHOVEL = [
+    ".......xx.",
+    "......xxxx",
+    "......xxxx",
+    ".....xxxx.",
+    "....xx....",
+    "...xx.....",
+    "..xx......",
+    ".xx.......",
+    "xx........",
+    "..........",
+]
+
+WATERMARK = (183, 183, 183, 255)
+
+
+def stamp_glyph(px, glyph, ox, oy, flip=False):
+    for y, row in enumerate(glyph):
+        assert len(row) == 10
+        for x, ch in enumerate(row):
+            if ch == ".":
+                continue
+            gx = ox + (9 - x if flip else x)
+            gy = oy + y
+            if px[gy][gx] == GUI_BG:
+                px[gy][gx] = WATERMARK
+
+
 GUI_FLAME = [
     "......f......",
     "......f......",
@@ -664,6 +748,17 @@ def gauge_y(temp):
 def tex_gui_forge():
     px = blank(256, 256)
     gui_panel(px, 0, 0, 176, 166)
+
+    # Scattered tool silhouettes in the free areas.
+    stamp_glyph(px, GLYPH_SWORD, 10, 16)
+    stamp_glyph(px, GLYPH_PICKAXE, 46, 16)
+    stamp_glyph(px, GLYPH_HAMMER, 84, 17)
+    stamp_glyph(px, GLYPH_AXE, 120, 16)
+    stamp_glyph(px, GLYPH_SHOVEL, 9, 40)
+    stamp_glyph(px, GLYPH_SWORD, 60, 37, flip=True)
+    stamp_glyph(px, GLYPH_PICKAXE, 104, 58, flip=True)
+    stamp_glyph(px, GLYPH_HAMMER, 12, 66, flip=True)
+    stamp_glyph(px, GLYPH_AXE, 126, 64, flip=True)
 
     # Slots: workpiece, fuel, player inventory, hotbar.
     gui_inset(px, 79, 34, 18, 18)
@@ -713,6 +808,21 @@ def tex_gui_forge():
         for y in range(5):
             px[16 + y][176 + x] = c
     draw_arrow(px, 176, 24, silhouette=False)
+    return px
+
+
+def tex_advancement_bg():
+    """16x16 tile for the advancement screen: dark stone with a faint hammer,
+    tiling into the same scattered-silhouette wallpaper as the forge GUI."""
+    px = blank()
+    for y in range(16):
+        for x in range(16):
+            px[y][x] = shade((72, 70, 68), noise(x, y, 97, 11) - 5)
+    dark = (56, 54, 52)
+    for y, row in enumerate(GLYPH_HAMMER):
+        for x, ch in enumerate(row):
+            if ch != ".":
+                px[y + 3][x + 3] = (dark[0], dark[1], dark[2], 255)
     return px
 
 
@@ -915,7 +1025,7 @@ def gen_advancements():
         J(os.path.join(ad, name + ".json"), obj)
 
     adv("root", "swordsmith:smithing_hammer", None,
-        background="minecraft:textures/gui/advancements/backgrounds/stone.png",
+        background="swordsmith:textures/gui/advancement_bg.png",
         announce=False, toast=False)
     adv("iron_bloom", "swordsmith:iron_bloom", "root", frame="goal")
     adv("steel_billet", "swordsmith:steel_billet", "iron_bloom")
@@ -937,6 +1047,7 @@ def gen_textures():
     for name, fn in BLOCK_TEXTURES.items():
         write_png(os.path.join(ASSETS, "textures", "block", name + ".png"), fn())
     write_png(os.path.join(ASSETS, "textures", "gui", "forge.png"), tex_gui_forge())
+    write_png(os.path.join(ASSETS, "textures", "gui", "advancement_bg.png"), tex_advancement_bg())
     # Mod icon: the sword, scaled up.
     write_png(os.path.join(ASSETS, "icon.png"), scale(build_item("forged_steel_sword"), 8))
 
