@@ -1,0 +1,32 @@
+{
+	"display": {
+		"icon": {
+			"id": "swordsmith:sharp_blade"
+		},
+		"title": {
+			"translate": "advancement.swordsmith.sharp_blade.title"
+		},
+		"description": {
+			"translate": "advancement.swordsmith.sharp_blade.desc"
+		},
+		"frame": "task",
+		"show_toast": true,
+		"announce_to_chat": true,
+		"hidden": false
+	},
+	"criteria": {
+		"has_item": {
+			"trigger": "minecraft:inventory_changed",
+			"conditions": {
+				"items": [
+					{
+						"items": [
+							"swordsmith:sharp_blade"
+						]
+					}
+				]
+			}
+		}
+	},
+	"parent": "swordsmith:smithing/tempered_blade"
+}

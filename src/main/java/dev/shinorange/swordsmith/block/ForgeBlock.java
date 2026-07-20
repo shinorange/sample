@@ -86,7 +86,7 @@ public class ForgeBlock extends BlockWithEntity {
 			if (world.isClient) {
 				return ItemActionResult.SUCCESS;
 			}
-			if (forge.addFuel()) {
+			if (forge.addFuelItem(stack)) {
 				if (!player.isCreative()) {
 					stack.decrement(1);
 				}
@@ -103,7 +103,7 @@ public class ForgeBlock extends BlockWithEntity {
 				return ItemActionResult.SUCCESS;
 			}
 			if (lit) {
-				forge.sendStatus(player);
+				player.sendMessage(Text.translatable("msg.swordsmith.already_lit"), true);
 			} else if (forge.hasFuel()) {
 				world.setBlockState(pos, state.with(LIT, true), Block.NOTIFY_ALL);
 				stack.damage(1, player, hand == Hand.MAIN_HAND ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND);
@@ -169,13 +169,13 @@ public class ForgeBlock extends BlockWithEntity {
 			return ItemActionResult.SUCCESS;
 		}
 
-		// Take the workpiece out with tongs.
+		// Take the workpiece out with tongs, without opening the menu.
 		if (stack.isOf(ModItems.SMITHING_TONGS)) {
 			if (world.isClient) {
 				return ItemActionResult.SUCCESS;
 			}
 			if (forge.getWorkpiece().isEmpty()) {
-				forge.sendStatus(player);
+				player.sendMessage(Text.translatable("msg.swordsmith.forge_empty"), true);
 			} else {
 				player.getInventory().offerOrDrop(forge.takeWorkpiece());
 				world.playSound(null, pos, SoundEvents.ENTITY_ITEM_FRAME_REMOVE_ITEM, SoundCategory.BLOCKS, 0.9f, 0.9f);
@@ -191,15 +191,8 @@ public class ForgeBlock extends BlockWithEntity {
 		if (!(world.getBlockEntity(pos) instanceof ForgeBlockEntity forge)) {
 			return ActionResult.PASS;
 		}
-		if (world.isClient) {
-			return ActionResult.SUCCESS;
-		}
-		if (forge.getWorkpiece().isEmpty()) {
-			forge.sendStatus(player);
-		} else {
-			// Bare-handed grab; if it is still hot, the burn is on you.
-			player.getInventory().offerOrDrop(forge.takeWorkpiece());
-			world.playSound(null, pos, SoundEvents.ENTITY_ITEM_FRAME_REMOVE_ITEM, SoundCategory.BLOCKS, 0.9f, 0.9f);
+		if (!world.isClient) {
+			player.openHandledScreen(forge);
 		}
 		return ActionResult.SUCCESS;
 	}
@@ -207,10 +200,9 @@ public class ForgeBlock extends BlockWithEntity {
 	@Override
 	protected void onStateReplaced(BlockState state, World world, BlockPos pos, BlockState newState, boolean moved) {
 		if (!state.isOf(newState.getBlock()) && world.getBlockEntity(pos) instanceof ForgeBlockEntity forge) {
-			ItemStack workpiece = forge.takeWorkpiece();
-			if (!workpiece.isEmpty()) {
-				ItemScatterer.spawn(world, pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5, workpiece);
-			}
+			forge.stampHeat(forge.getWorkpiece());
+			ItemScatterer.spawn(world, pos, forge);
+			forge.clear();
 		}
 		super.onStateReplaced(state, world, pos, newState, moved);
 	}

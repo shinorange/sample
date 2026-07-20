@@ -2,13 +2,17 @@ package dev.shinorange.swordsmith.block.entity;
 
 import dev.shinorange.swordsmith.block.ForgeBlock;
 import dev.shinorange.swordsmith.core.Heat;
+import dev.shinorange.swordsmith.core.Smithing;
 import dev.shinorange.swordsmith.registry.ModBlockEntities;
 import dev.shinorange.swordsmith.registry.ModItems;
+import dev.shinorange.swordsmith.screen.ForgeScreenHandler;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.inventory.Inventories;
+import net.minecraft.inventory.Inventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
@@ -17,10 +21,14 @@ import net.minecraft.network.packet.Packet;
 import net.minecraft.network.packet.s2c.play.BlockEntityUpdateS2CPacket;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.screen.NamedScreenHandlerFactory;
+import net.minecraft.screen.PropertyDelegate;
+import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
+import net.minecraft.util.collection.DefaultedList;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 
@@ -36,12 +44,28 @@ import net.minecraft.world.World;
  *   becomes a tempered blade
  * - annealing: any hardened blade that climbs past 460 C loses its hardness
  *   and reverts to a rough blade
+ *
+ * Slot 0 holds the workpiece (also rendered in-world), slot 1 a stack of
+ * fuel that is consumed into the fire one piece at a time. Whenever the
+ * workpiece leaves through the GUI or a hopper, its live temperature is
+ * stamped onto the stack — carry it with tongs.
  */
-public class ForgeBlockEntity extends BlockEntity {
+public class ForgeBlockEntity extends BlockEntity implements Inventory, NamedScreenHandlerFactory {
+	public static final int SLOT_WORKPIECE = 0;
+	public static final int SLOT_FUEL = 1;
+	public static final int SLOT_COUNT = 2;
+
+	public static final int PROPERTY_FIRE_TEMP = 0;
+	public static final int PROPERTY_WORK_TEMP = 1;
+	public static final int PROPERTY_FUEL_SECONDS = 2;
+	public static final int PROPERTY_AIRFLOW = 3;
+	public static final int PROPERTY_PROGRESS = 4;
+	public static final int PROPERTY_COUNT = 5;
+
 	private static final float MAX_FUEL_SECONDS = 300f;
 	private static final float FUEL_SECONDS_PER_COAL = 60f;
 
-	private ItemStack workpiece = ItemStack.EMPTY;
+	private final DefaultedList<ItemStack> inventory = DefaultedList.ofSize(SLOT_COUNT, ItemStack.EMPTY);
 	private float fuelSeconds;
 	private float airflow;
 	private float forgeTemp = Heat.AMBIENT;
@@ -49,8 +73,42 @@ public class ForgeBlockEntity extends BlockEntity {
 	private int smeltProgress;
 	private int temperProgress;
 
+	private final PropertyDelegate propertyDelegate = new PropertyDelegate() {
+		@Override
+		public int get(int index) {
+			return switch (index) {
+				case PROPERTY_FIRE_TEMP -> (int) forgeTemp;
+				case PROPERTY_WORK_TEMP -> (int) workTemp;
+				case PROPERTY_FUEL_SECONDS -> (int) fuelSeconds;
+				case PROPERTY_AIRFLOW -> (int) (airflow * 100f);
+				case PROPERTY_PROGRESS -> progressPercent();
+				default -> 0;
+			};
+		}
+
+		@Override
+		public void set(int index, int value) {
+			// Server-authoritative; the client handler keeps its own copy.
+		}
+
+		@Override
+		public int size() {
+			return PROPERTY_COUNT;
+		}
+	};
+
 	public ForgeBlockEntity(BlockPos pos, BlockState state) {
 		super(ModBlockEntities.FORGE, pos, state);
+	}
+
+	private int progressPercent() {
+		if (smeltProgress > 0) {
+			return Math.min(100, smeltProgress * 100 / Heat.SMELT_TICKS);
+		}
+		if (temperProgress > 0) {
+			return Math.min(100, temperProgress * 100 / Heat.TEMPER_TICKS);
+		}
+		return 0;
 	}
 
 	public static void serverTick(World world, BlockPos pos, BlockState state, ForgeBlockEntity forge) {
@@ -60,6 +118,15 @@ public class ForgeBlockEntity extends BlockEntity {
 		forge.airflow = Math.max(0f, forge.airflow - 1f / 600f);
 
 		if (lit) {
+			// Feed the fire from the fuel slot one piece at a time.
+			if (forge.fuelSeconds <= MAX_FUEL_SECONDS - FUEL_SECONDS_PER_COAL) {
+				ItemStack fuel = forge.inventory.get(SLOT_FUEL);
+				if (!fuel.isEmpty()) {
+					fuel.decrement(1);
+					forge.fuelSeconds += FUEL_SECONDS_PER_COAL;
+					forge.markDirty();
+				}
+			}
 			forge.fuelSeconds -= (1f + forge.airflow) / 20f;
 			if (forge.fuelSeconds <= 0f) {
 				forge.fuelSeconds = 0f;
@@ -67,7 +134,8 @@ public class ForgeBlockEntity extends BlockEntity {
 			}
 		}
 
-		if (!forge.workpiece.isEmpty()) {
+		ItemStack workpiece = forge.inventory.get(SLOT_WORKPIECE);
+		if (!workpiece.isEmpty()) {
 			forge.workTemp += (forge.forgeTemp - forge.workTemp) * 0.02f;
 			forge.tickTransformations(world, pos);
 		} else {
@@ -80,17 +148,17 @@ public class ForgeBlockEntity extends BlockEntity {
 	}
 
 	private void tickTransformations(World world, BlockPos pos) {
+		ItemStack workpiece = inventory.get(SLOT_WORKPIECE);
 		if (workpiece.isOf(Items.RAW_IRON)) {
 			if (workTemp >= Heat.SMELT_TEMP) {
 				if (++smeltProgress >= Heat.SMELT_TICKS) {
-					workpiece = new ItemStack(ModItems.IRON_BLOOM);
+					replaceWorkpiece(new ItemStack(ModItems.IRON_BLOOM));
 					smeltProgress = 0;
 					world.playSound(null, pos, SoundEvents.BLOCK_LAVA_POP, SoundCategory.BLOCKS, 1.0f, 0.8f);
 					if (world instanceof ServerWorld serverWorld) {
 						serverWorld.spawnParticles(ParticleTypes.LAVA,
 								pos.getX() + 0.5, pos.getY() + 1.1, pos.getZ() + 0.5, 8, 0.2, 0.1, 0.2, 0.0);
 					}
-					markDirtyAndSync();
 				}
 			} else if (smeltProgress > 0 && workTemp < 700f) {
 				// Only a fire left truly to die loses the smelting progress.
@@ -98,21 +166,19 @@ public class ForgeBlockEntity extends BlockEntity {
 			}
 		} else if (isHardenedBlade() && workTemp > Heat.ANNEAL_TEMP) {
 			// Too hot: quench hardness (and any edge) is annealed away.
-			workpiece = new ItemStack(ModItems.ROUGH_BLADE);
+			replaceWorkpiece(new ItemStack(ModItems.ROUGH_BLADE));
 			temperProgress = 0;
 			world.playSound(null, pos, SoundEvents.BLOCK_FIRE_EXTINGUISH, SoundCategory.BLOCKS, 0.8f, 0.5f);
 			if (world instanceof ServerWorld serverWorld) {
 				serverWorld.spawnParticles(ParticleTypes.SMOKE,
 						pos.getX() + 0.5, pos.getY() + 1.2, pos.getZ() + 0.5, 12, 0.2, 0.1, 0.2, 0.02);
 			}
-			markDirtyAndSync();
 		} else if (workpiece.isOf(ModItems.QUENCHED_BLADE)) {
 			if (workTemp >= Heat.TEMPER_MIN && workTemp <= Heat.TEMPER_MAX) {
 				if (++temperProgress >= Heat.TEMPER_TICKS) {
-					workpiece = new ItemStack(ModItems.TEMPERED_BLADE);
+					replaceWorkpiece(new ItemStack(ModItems.TEMPERED_BLADE));
 					temperProgress = 0;
 					world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.BLOCKS, 0.7f, 1.2f);
-					markDirtyAndSync();
 				}
 			}
 		}
@@ -120,22 +186,36 @@ public class ForgeBlockEntity extends BlockEntity {
 
 	/** Blades whose heat treatment would be ruined by overheating. */
 	private boolean isHardenedBlade() {
+		ItemStack workpiece = inventory.get(SLOT_WORKPIECE);
 		return workpiece.isOf(ModItems.QUENCHED_BLADE)
 				|| workpiece.isOf(ModItems.TEMPERED_BLADE)
 				|| workpiece.isOf(ModItems.SHARP_BLADE);
 	}
 
-	public boolean addFuel() {
-		if (fuelSeconds >= MAX_FUEL_SECONDS - 1f) {
-			return false;
+	/** Swaps the workpiece in place, keeping its temperature. */
+	private void replaceWorkpiece(ItemStack stack) {
+		inventory.set(SLOT_WORKPIECE, stack);
+		markDirtyAndSync();
+	}
+
+	/** Tries to add one piece of fuel from the held stack into the fuel slot. */
+	public boolean addFuelItem(ItemStack held) {
+		ItemStack current = inventory.get(SLOT_FUEL);
+		if (current.isEmpty()) {
+			inventory.set(SLOT_FUEL, held.copyWithCount(1));
+			markDirty();
+			return true;
 		}
-		fuelSeconds = Math.min(MAX_FUEL_SECONDS, fuelSeconds + FUEL_SECONDS_PER_COAL);
-		markDirty();
-		return true;
+		if (current.isOf(held.getItem()) && current.getCount() < current.getMaxCount()) {
+			current.increment(1);
+			markDirty();
+			return true;
+		}
+		return false;
 	}
 
 	public boolean hasFuel() {
-		return fuelSeconds > 0f;
+		return fuelSeconds > 0f || !inventory.get(SLOT_FUEL).isEmpty();
 	}
 
 	public void pump() {
@@ -144,34 +224,119 @@ public class ForgeBlockEntity extends BlockEntity {
 	}
 
 	public ItemStack getWorkpiece() {
-		return workpiece;
+		return inventory.get(SLOT_WORKPIECE);
 	}
 
 	public void insertWorkpiece(ItemStack stack) {
-		workpiece = stack;
-		workTemp = world != null ? Heat.current(world, stack) : Heat.AMBIENT;
-		smeltProgress = 0;
-		temperProgress = 0;
-		markDirtyAndSync();
+		setStack(SLOT_WORKPIECE, stack);
 	}
 
 	/** Removes the workpiece, stamping its current temperature onto the stack. */
 	public ItemStack takeWorkpiece() {
-		ItemStack out = workpiece;
-		workpiece = ItemStack.EMPTY;
-		smeltProgress = 0;
-		temperProgress = 0;
-		if (world != null && !out.isEmpty()) {
-			Heat.set(world, out, workTemp);
-		}
-		markDirtyAndSync();
-		return out;
+		return removeStack(SLOT_WORKPIECE);
 	}
 
-	public void sendStatus(PlayerEntity player) {
-		player.sendMessage(Text.translatable("msg.swordsmith.forge_status",
-				(int) forgeTemp, (int) fuelSeconds, (int) (airflow * 100f)), true);
+	/** Writes the live temperature onto a stack leaving the fire. */
+	public void stampHeat(ItemStack stack) {
+		if (world != null && !stack.isEmpty() && Smithing.isHeatable(stack)) {
+			Heat.set(world, stack, workTemp);
+		}
 	}
+
+	private void resetProgress() {
+		smeltProgress = 0;
+		temperProgress = 0;
+	}
+
+	// --- Inventory ---------------------------------------------------------
+
+	@Override
+	public int size() {
+		return SLOT_COUNT;
+	}
+
+	@Override
+	public boolean isEmpty() {
+		return inventory.get(SLOT_WORKPIECE).isEmpty() && inventory.get(SLOT_FUEL).isEmpty();
+	}
+
+	@Override
+	public ItemStack getStack(int slot) {
+		return inventory.get(slot);
+	}
+
+	@Override
+	public ItemStack removeStack(int slot, int amount) {
+		ItemStack removed = Inventories.splitStack(inventory, slot, amount);
+		if (!removed.isEmpty()) {
+			if (slot == SLOT_WORKPIECE) {
+				stampHeat(removed);
+				resetProgress();
+				markDirtyAndSync();
+			} else {
+				markDirty();
+			}
+		}
+		return removed;
+	}
+
+	@Override
+	public ItemStack removeStack(int slot) {
+		ItemStack removed = Inventories.removeStack(inventory, slot);
+		if (!removed.isEmpty() && slot == SLOT_WORKPIECE) {
+			stampHeat(removed);
+			resetProgress();
+			markDirtyAndSync();
+		}
+		return removed;
+	}
+
+	@Override
+	public void setStack(int slot, ItemStack stack) {
+		inventory.set(slot, stack);
+		if (stack.getCount() > stack.getMaxCount()) {
+			stack.setCount(stack.getMaxCount());
+		}
+		if (slot == SLOT_WORKPIECE) {
+			workTemp = world != null ? Heat.current(world, stack) : Heat.AMBIENT;
+			resetProgress();
+			markDirtyAndSync();
+		} else {
+			markDirty();
+		}
+	}
+
+	@Override
+	public boolean isValid(int slot, ItemStack stack) {
+		if (slot == SLOT_FUEL) {
+			return stack.isOf(Items.COAL) || stack.isOf(Items.CHARCOAL);
+		}
+		return Smithing.isHeatable(stack);
+	}
+
+	@Override
+	public boolean canPlayerUse(PlayerEntity player) {
+		return Inventory.canPlayerUse(this, player);
+	}
+
+	@Override
+	public void clear() {
+		inventory.clear();
+	}
+
+	// --- NamedScreenHandlerFactory ----------------------------------------
+
+	@Override
+	public Text getDisplayName() {
+		return Text.translatable("block.swordsmith.forge");
+	}
+
+	@Override
+	public ScreenHandler createMenu(int syncId, PlayerInventory playerInventory, PlayerEntity player) {
+		return new ForgeScreenHandler(syncId, playerInventory, this, propertyDelegate);
+	}
+
+	// --- persistence & sync ------------------------------------------------
 
 	private void markDirtyAndSync() {
 		markDirty();
@@ -183,9 +348,7 @@ public class ForgeBlockEntity extends BlockEntity {
 	@Override
 	public void writeNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup registryLookup) {
 		super.writeNbt(nbt, registryLookup);
-		if (!workpiece.isEmpty()) {
-			nbt.put("Workpiece", workpiece.encode(registryLookup));
-		}
+		Inventories.writeNbt(nbt, inventory, registryLookup);
 		nbt.putFloat("Fuel", fuelSeconds);
 		nbt.putFloat("Airflow", airflow);
 		nbt.putFloat("ForgeTemp", forgeTemp);
@@ -197,9 +360,8 @@ public class ForgeBlockEntity extends BlockEntity {
 	@Override
 	public void readNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup registryLookup) {
 		super.readNbt(nbt, registryLookup);
-		workpiece = nbt.contains("Workpiece")
-				? ItemStack.fromNbt(registryLookup, nbt.getCompound("Workpiece")).orElse(ItemStack.EMPTY)
-				: ItemStack.EMPTY;
+		inventory.clear();
+		Inventories.readNbt(nbt, inventory, registryLookup);
 		fuelSeconds = nbt.getFloat("Fuel");
 		airflow = nbt.getFloat("Airflow");
 		forgeTemp = nbt.getFloat("ForgeTemp");

@@ -1,0 +1,32 @@
+{
+	"display": {
+		"icon": {
+			"id": "swordsmith:quenched_blade"
+		},
+		"title": {
+			"translate": "advancement.swordsmith.quenched_blade.title"
+		},
+		"description": {
+			"translate": "advancement.swordsmith.quenched_blade.desc"
+		},
+		"frame": "goal",
+		"show_toast": true,
+		"announce_to_chat": true,
+		"hidden": false
+	},
+	"criteria": {
+		"has_item": {
+			"trigger": "minecraft:inventory_changed",
+			"conditions": {
+				"items": [
+					{
+						"items": [
+							"swordsmith:quenched_blade"
+						]
+					}
+				]
+			}
+		}
+	},
+	"parent": "swordsmith:smithing/rough_blade"
+}

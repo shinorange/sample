@@ -566,6 +566,157 @@ BLOCK_TEXTURES = {
 
 
 # --------------------------------------------------------------------------
+# Forge GUI texture (vanilla-styled panel, 256x256)
+# --------------------------------------------------------------------------
+
+GUI_BG = (198, 198, 198, 255)
+GUI_WHITE = (255, 255, 255, 255)
+GUI_SHADOW = (85, 85, 85, 255)
+GUI_BLACK = (0, 0, 0, 255)
+SLOT_BG = (139, 139, 139, 255)
+SLOT_DARK = (55, 55, 55, 255)
+
+
+def rect(px, x0, y0, w, h, c):
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            px[y][x] = c
+
+
+def gui_panel(px, x0, y0, w, h):
+    """Classic dialog: black outline, white top-left bevel, dark bottom-right."""
+    rect(px, x0, y0, w, h, GUI_BG)
+    for x in range(x0 + 1, x0 + w - 1):
+        px[y0][x] = GUI_BLACK
+        px[y0 + h - 1][x] = GUI_BLACK
+    for y in range(y0 + 1, y0 + h - 1):
+        px[y][x0] = GUI_BLACK
+        px[y][x0 + w - 1] = GUI_BLACK
+    for x in range(x0 + 1, x0 + w - 2):
+        px[y0 + 1][x] = GUI_WHITE
+        px[y0 + h - 2][x] = GUI_SHADOW
+    for y in range(y0 + 1, y0 + h - 2):
+        px[y][x0 + 1] = GUI_WHITE
+        px[y][x0 + w - 2] = GUI_SHADOW
+    px[y0 + 1][x0 + w - 2] = GUI_BG
+    px[y0 + h - 2][x0 + 1] = GUI_BG
+    for cx, cy in ((x0, y0), (x0 + w - 1, y0), (x0, y0 + h - 1), (x0 + w - 1, y0 + h - 1)):
+        px[cy][cx] = (0, 0, 0, 0)
+
+
+def gui_inset(px, x0, y0, w, h, fill=SLOT_BG):
+    """Recessed area: dark top-left, white bottom-right (slot look)."""
+    rect(px, x0, y0, w, h, fill)
+    for x in range(x0, x0 + w - 1):
+        px[y0][x] = SLOT_DARK
+    for y in range(y0, y0 + h - 1):
+        px[y][x0] = SLOT_DARK
+    for x in range(x0 + 1, x0 + w):
+        px[y0 + h - 1][x] = GUI_WHITE
+    for y in range(y0 + 1, y0 + h):
+        px[y][x0 + w - 1] = GUI_WHITE
+    px[y0][x0 + w - 1] = fill
+    px[y0 + h - 1][x0] = fill
+
+
+GUI_FLAME = [
+    "......f......",
+    "......f......",
+    ".....fff.....",
+    ".....fff.....",
+    "....fffff....",
+    "....fffff....",
+    "...fffffff...",
+    "...ffyyyff...",
+    "..ffyyyyyff..",
+    "..fyyywyyyf..",
+    "..fyywwwyyf..",
+    "...fywwwyf...",
+    "....fffff....",
+]
+
+
+def draw_flame(px, ox, oy, silhouette):
+    lit = {"f": (255, 138, 20, 255), "y": (255, 200, 40, 255), "w": (255, 240, 160, 255)}
+    for y, row in enumerate(GUI_FLAME):
+        assert len(row) == 13
+        for x, ch in enumerate(row):
+            if ch == ".":
+                continue
+            px[oy + y][ox + x] = (118, 118, 118, 255) if silhouette else lit[ch]
+
+
+def draw_arrow(px, ox, oy, silhouette):
+    color = (118, 118, 118, 255) if silhouette else (232, 232, 232, 255)
+    for x in range(0, 15):
+        for y in range(4, 9):
+            px[oy + y][ox + x] = color
+    for c in range(14, 22):
+        half = round((21 - c) * 6 / 7)
+        for y in range(6 - half, 6 + half + 1):
+            px[oy + y][ox + c] = color
+
+
+def gauge_y(temp):
+    return 70 - round(54 * (temp - 20) / 1280.0)
+
+
+def tex_gui_forge():
+    px = blank(256, 256)
+    gui_panel(px, 0, 0, 176, 166)
+
+    # Slots: workpiece, fuel, player inventory, hotbar.
+    gui_inset(px, 79, 34, 18, 18)
+    gui_inset(px, 27, 52, 18, 18)
+    for row in range(3):
+        for col in range(9):
+            gui_inset(px, 7 + col * 18, 83 + row * 18, 18, 18)
+    for col in range(9):
+        gui_inset(px, 7 + col * 18, 141, 18, 18)
+
+    # Thermometer housing with graduations and colored zone ticks.
+    gui_inset(px, 147, 13, 13, 59, fill=(30, 30, 34, 255))
+    for gy in (26, 39, 52, 65):
+        for gx in range(149, 158):
+            px[gy][gx] = (48, 48, 54, 255)
+    zones = [
+        (gauge_y(400), gauge_y(150), (111, 168, 220, 255)),   # temper band
+        (gauge_y(720) - 1, gauge_y(720) + 1, (230, 145, 56, 255)),  # forging line
+        (gauge_y(950), gauge_y(780), (204, 65, 37, 255)),     # quench band
+        (gauge_y(1150) - 1, gauge_y(1150) + 1, (255, 217, 102, 255)),  # smelt line
+    ]
+    for y0, y1, color in zones:
+        for y in range(min(y0, y1), max(y0, y1) + 1):
+            px[y][161] = color
+            px[y][162] = color
+
+    # Fuel flame silhouette and bellows blast channel.
+    draw_flame(px, 28, 35, silhouette=True)
+    gui_inset(px, 48, 57, 26, 7, fill=(30, 30, 34, 255))
+
+    # Progress arrow silhouette.
+    draw_arrow(px, 103, 36, silhouette=True)
+
+    # Ghost icons: a faint blade in the workpiece slot, coal in the fuel slot.
+    for i in range(10):
+        px[38 + i][91 - i] = (122, 122, 122, 255)
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            if dx * dx + dy * dy <= 5:
+                px[60 + dy][35 + dx] = (117, 117, 117, 255)
+
+    # Sprite region: lit flame, blast fill, lit arrow.
+    draw_flame(px, 176, 0, silhouette=False)
+    for x in range(24):
+        k = x / 23.0
+        c = (clamp(156 + k * 68), clamp(199 + k * 41), 255, 255)
+        for y in range(5):
+            px[16 + y][176 + x] = c
+    draw_arrow(px, 176, 24, silhouette=False)
+    return px
+
+
+# --------------------------------------------------------------------------
 # JSON assets
 # --------------------------------------------------------------------------
 
@@ -736,6 +887,46 @@ def gen_tags():
         "swordsmith:quenching_barrel"]})
 
 
+def gen_advancements():
+    ad = os.path.join(DATA, "swordsmith", "advancement", "smithing")
+
+    def adv(name, icon, parent, frame="task", hidden=False, background=None,
+            announce=True, toast=True):
+        display = {
+            "icon": {"id": icon},
+            "title": {"translate": "advancement.swordsmith.%s.title" % name},
+            "description": {"translate": "advancement.swordsmith.%s.desc" % name},
+            "frame": frame,
+            "show_toast": toast,
+            "announce_to_chat": announce,
+            "hidden": hidden,
+        }
+        if background:
+            display["background"] = background
+        obj = {
+            "display": display,
+            "criteria": {"has_item": {
+                "trigger": "minecraft:inventory_changed",
+                "conditions": {"items": [{"items": [icon]}]},
+            }},
+        }
+        if parent:
+            obj["parent"] = "swordsmith:smithing/" + parent
+        J(os.path.join(ad, name + ".json"), obj)
+
+    adv("root", "swordsmith:smithing_hammer", None,
+        background="minecraft:textures/gui/advancements/backgrounds/stone.png",
+        announce=False, toast=False)
+    adv("iron_bloom", "swordsmith:iron_bloom", "root", frame="goal")
+    adv("steel_billet", "swordsmith:steel_billet", "iron_bloom")
+    adv("rough_blade", "swordsmith:rough_blade", "steel_billet")
+    adv("cracked_blade", "swordsmith:cracked_blade", "rough_blade", hidden=True)
+    adv("quenched_blade", "swordsmith:quenched_blade", "rough_blade", frame="goal")
+    adv("tempered_blade", "swordsmith:tempered_blade", "quenched_blade")
+    adv("sharp_blade", "swordsmith:sharp_blade", "tempered_blade")
+    adv("forged_steel_sword", "swordsmith:forged_steel_sword", "sharp_blade", frame="challenge")
+
+
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
@@ -745,6 +936,7 @@ def gen_textures():
         write_png(os.path.join(ASSETS, "textures", "item", name + ".png"), build_item(name))
     for name, fn in BLOCK_TEXTURES.items():
         write_png(os.path.join(ASSETS, "textures", "block", name + ".png"), fn())
+    write_png(os.path.join(ASSETS, "textures", "gui", "forge.png"), tex_gui_forge())
     # Mod icon: the sword, scaled up.
     write_png(os.path.join(ASSETS, "icon.png"), scale(build_item("forged_steel_sword"), 8))
 
@@ -783,9 +975,14 @@ def main():
     gen_recipes()
     gen_loot_tables()
     gen_tags()
+    gen_advancements()
     gen_textures()
     if "--montage" in sys.argv:
         gen_montage(sys.argv[sys.argv.index("--montage") + 1])
+    if "--gui-preview" in sys.argv:
+        gui = tex_gui_forge()
+        crop = [row[:176] for row in gui[:166]]
+        write_png(sys.argv[sys.argv.index("--gui-preview") + 1], scale(crop, 3))
     print("assets generated OK")
 
 

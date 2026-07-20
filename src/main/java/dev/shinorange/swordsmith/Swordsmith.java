@@ -5,6 +5,7 @@ import dev.shinorange.swordsmith.registry.ModBlocks;
 import dev.shinorange.swordsmith.registry.ModComponents;
 import dev.shinorange.swordsmith.registry.ModItemGroups;
 import dev.shinorange.swordsmith.registry.ModItems;
+import dev.shinorange.swordsmith.registry.ModScreenHandlers;
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
@@ -35,6 +36,7 @@ public class Swordsmith implements ModInitializer {
 		ModBlocks.init();
 		ModItems.init();
 		ModBlockEntities.init();
+		ModScreenHandlers.init();
 		ModItemGroups.init();
 		LOGGER.info("Real Swordsmithing initialized. Fire up the forge!");
 	}
