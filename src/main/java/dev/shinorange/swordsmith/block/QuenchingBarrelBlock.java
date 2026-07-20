@@ -53,6 +53,8 @@ public class QuenchingBarrelBlock extends Block {
 				world.setBlockState(pos, state.with(FILLED, true), Block.NOTIFY_ALL);
 				player.setStackInHand(hand, ItemUsage.exchangeStack(stack, player, new ItemStack(Items.BUCKET)));
 				world.playSound(null, pos, SoundEvents.ITEM_BUCKET_EMPTY, SoundCategory.BLOCKS, 1.0f, 1.0f);
+			} else {
+				player.sendMessage(Text.translatable("msg.swordsmith.barrel_full"), true);
 			}
 			return ItemActionResult.SUCCESS;
 		}

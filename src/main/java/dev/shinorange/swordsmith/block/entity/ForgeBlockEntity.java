@@ -27,11 +27,15 @@ import net.minecraft.world.World;
 /**
  * Simulates the fire: fuel burns down, bellows air raises the target
  * temperature, and the workpiece asymptotically approaches the fire's
- * temperature. Two slow transformations happen in the coals:
+ * temperature. A lit fire without blast is a ~300 C banked fire; pumping the
+ * bellows drives it toward 1280 C. Slow transformations happen in the coals:
  *
  * - bloomery smelting: raw iron held above 1150 C becomes an iron bloom
- * - tempering: a quenched blade held at 150-400 C becomes a tempered blade,
- *   but above 460 C the hardness is lost again (annealed back to a rough blade)
+ *   (keep pumping — the blast decays)
+ * - tempering: a quenched blade held at 150-400 C (the banked fire is ideal)
+ *   becomes a tempered blade
+ * - annealing: any hardened blade that climbs past 460 C loses its hardness
+ *   and reverts to a rough blade
  */
 public class ForgeBlockEntity extends BlockEntity {
 	private static final float MAX_FUEL_SECONDS = 300f;
@@ -53,7 +57,7 @@ public class ForgeBlockEntity extends BlockEntity {
 		boolean lit = state.get(ForgeBlock.LIT);
 		float target = lit ? Heat.FORGE_BASE_TEMP + forge.airflow * Heat.BELLOWS_BONUS : Heat.AMBIENT;
 		forge.forgeTemp += (target - forge.forgeTemp) * 0.005f;
-		forge.airflow = Math.max(0f, forge.airflow - 1f / 400f);
+		forge.airflow = Math.max(0f, forge.airflow - 1f / 600f);
 
 		if (lit) {
 			forge.fuelSeconds -= (1f + forge.airflow) / 20f;
@@ -88,21 +92,22 @@ public class ForgeBlockEntity extends BlockEntity {
 					}
 					markDirtyAndSync();
 				}
-			} else if (smeltProgress > 0) {
+			} else if (smeltProgress > 0 && workTemp < 700f) {
+				// Only a fire left truly to die loses the smelting progress.
 				smeltProgress--;
 			}
+		} else if (isHardenedBlade() && workTemp > Heat.ANNEAL_TEMP) {
+			// Too hot: quench hardness (and any edge) is annealed away.
+			workpiece = new ItemStack(ModItems.ROUGH_BLADE);
+			temperProgress = 0;
+			world.playSound(null, pos, SoundEvents.BLOCK_FIRE_EXTINGUISH, SoundCategory.BLOCKS, 0.8f, 0.5f);
+			if (world instanceof ServerWorld serverWorld) {
+				serverWorld.spawnParticles(ParticleTypes.SMOKE,
+						pos.getX() + 0.5, pos.getY() + 1.2, pos.getZ() + 0.5, 12, 0.2, 0.1, 0.2, 0.02);
+			}
+			markDirtyAndSync();
 		} else if (workpiece.isOf(ModItems.QUENCHED_BLADE)) {
-			if (workTemp > Heat.ANNEAL_TEMP) {
-				// Too hot: the quench hardness is annealed away.
-				workpiece = new ItemStack(ModItems.ROUGH_BLADE);
-				temperProgress = 0;
-				world.playSound(null, pos, SoundEvents.BLOCK_FIRE_EXTINGUISH, SoundCategory.BLOCKS, 0.8f, 0.5f);
-				if (world instanceof ServerWorld serverWorld) {
-					serverWorld.spawnParticles(ParticleTypes.SMOKE,
-							pos.getX() + 0.5, pos.getY() + 1.2, pos.getZ() + 0.5, 12, 0.2, 0.1, 0.2, 0.02);
-				}
-				markDirtyAndSync();
-			} else if (workTemp >= Heat.TEMPER_MIN && workTemp <= Heat.TEMPER_MAX) {
+			if (workTemp >= Heat.TEMPER_MIN && workTemp <= Heat.TEMPER_MAX) {
 				if (++temperProgress >= Heat.TEMPER_TICKS) {
 					workpiece = new ItemStack(ModItems.TEMPERED_BLADE);
 					temperProgress = 0;
@@ -111,6 +116,13 @@ public class ForgeBlockEntity extends BlockEntity {
 				}
 			}
 		}
+	}
+
+	/** Blades whose heat treatment would be ruined by overheating. */
+	private boolean isHardenedBlade() {
+		return workpiece.isOf(ModItems.QUENCHED_BLADE)
+				|| workpiece.isOf(ModItems.TEMPERED_BLADE)
+				|| workpiece.isOf(ModItems.SHARP_BLADE);
 	}
 
 	public boolean addFuel() {

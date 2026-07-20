@@ -12,7 +12,8 @@ import net.minecraft.world.World;
  * All the metallurgy numbers in one place. Temperatures are in degrees Celsius
  * and roughly follow real smithing practice:
  *
- * - a charcoal forge idles around 900 C; hard bellows work pushes it near 1280 C
+ * - a banked charcoal fire smolders around 300 C — perfect for tempering —
+ *   and hard bellows work pushes it near 1280 C
  * - iron ore reduces to a spongy bloom above ~1150 C (bloomery smelting)
  * - steel is forged between ~720 C (dull red) and white heat
  * - hardening quench happens from the 780-950 C "cherry red" range;
@@ -21,8 +22,8 @@ import net.minecraft.world.World;
  */
 public final class Heat {
 	public static final float AMBIENT = 20f;
-	public static final float FORGE_BASE_TEMP = 900f;
-	public static final float BELLOWS_BONUS = 380f;
+	public static final float FORGE_BASE_TEMP = 300f;
+	public static final float BELLOWS_BONUS = 980f;
 
 	public static final float FORGING_MIN = 720f;
 	public static final float QUENCH_MIN = 780f;

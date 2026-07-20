@@ -21,7 +21,7 @@
 	"item.swordsmith.cracked_blade": "ひび割れた刀身",
 	"item.swordsmith.cracked_blade.hint": "焼き入れの温度が高すぎて割れてしまった…。熱し直して金床で打てば荒打ちの刀身に戻せる",
 	"item.swordsmith.quenched_blade": "焼き入れした刀身",
-	"item.swordsmith.quenched_blade.hint": "硬いが脆い状態。鍛冶炉で150〜400℃に保って焼き戻しをしよう。460℃を超えるとなまってしまう",
+	"item.swordsmith.quenched_blade.hint": "硬いが脆い状態。送風していない熾火の炉(約300℃)に入れて焼き戻しをしよう。460℃を超えるとなまってしまう",
 	"item.swordsmith.tempered_blade": "焼き戻しした刀身",
 	"item.swordsmith.tempered_blade.hint": "硬さと粘りを兼ね備えた刀身。冷えた状態で研ぎ台にかけ、刃を付けよう",
 	"item.swordsmith.sharp_blade": "研ぎ上げた刀身",
@@ -76,6 +76,8 @@
 	"msg.swordsmith.quench_crack": "バキッ…温度が高すぎた。急冷の衝撃で刀身にひびが入ってしまった",
 	"msg.swordsmith.quench_weak": "温度が足りず、焼きが入らなかった(780〜950℃で浸けよう)",
 	"msg.swordsmith.quench_cold": "刀身が冷えている。焼き入れは780〜950℃に熱してから",
+	"msg.swordsmith.grind_already_sharp": "この刀身はもう研ぎ上がっている。金床で柄を組み付けよう",
+	"msg.swordsmith.barrel_full": "樽はもう水で満ちている",
 	"msg.swordsmith.grind_hot": "刃が熱すぎる。研ぐと焼きが戻ってしまう――冷ましてからにしよう",
 	"msg.swordsmith.grind_wrong": "この状態の刀身はまだ研げない。鍛造と焼き入れ・焼き戻しを済ませよう",
 	"msg.swordsmith.grind_progress": "研いでいる… %s / %s"

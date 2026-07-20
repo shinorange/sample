@@ -21,7 +21,7 @@
 	"item.swordsmith.cracked_blade": "Cracked Blade",
 	"item.swordsmith.cracked_blade.hint": "Quenched too hot and cracked... Reheat and forge it back into a rough blade",
 	"item.swordsmith.quenched_blade": "Quenched Blade",
-	"item.swordsmith.quenched_blade.hint": "Glass-hard but brittle. Temper it in the forge at 150-400°C — above 460°C the hardness is lost",
+	"item.swordsmith.quenched_blade.hint": "Glass-hard but brittle. Temper it in a lit forge without bellows blast (~300°C) — above 460°C the hardness is lost",
 	"item.swordsmith.tempered_blade": "Tempered Blade",
 	"item.swordsmith.tempered_blade.hint": "Hard yet springy. Grind it on the sharpening wheel once it is cold",
 	"item.swordsmith.sharp_blade": "Sharpened Blade",
@@ -76,6 +76,8 @@
 	"msg.swordsmith.quench_crack": "Crack... it went in too hot and the shock split the blade",
 	"msg.swordsmith.quench_weak": "Too cool — no hardness took (quench from 780-950°C)",
 	"msg.swordsmith.quench_cold": "The blade is cold. Heat it to 780-950°C before quenching",
+	"msg.swordsmith.grind_already_sharp": "This blade is already sharp. Assemble the hilt on the anvil",
+	"msg.swordsmith.barrel_full": "The barrel is already full of water",
 	"msg.swordsmith.grind_hot": "Too hot to grind — you would ruin the temper. Let it cool",
 	"msg.swordsmith.grind_wrong": "This blade is not ready for grinding. Forge, quench and temper it first",
 	"msg.swordsmith.grind_progress": "Grinding... %s / %s"

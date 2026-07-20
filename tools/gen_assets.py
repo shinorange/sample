@@ -59,19 +59,6 @@ def shade(c, d):
     return (clamp(c[0] + d), clamp(c[1] + d), clamp(c[2] + d), 255)
 
 
-def from_grid(grid, palette):
-    assert len(grid) == 16, "grid must have 16 rows, has %d" % len(grid)
-    px = blank()
-    for y, row in enumerate(grid):
-        assert len(row) == 16, "row %d must have 16 chars, has %d: %r" % (y, len(row), row)
-        for x, ch in enumerate(row):
-            if ch == ".":
-                continue
-            c = palette[ch]
-            px[y][x] = (c[0], c[1], c[2], 255)
-    return px
-
-
 def scale(pixels, factor):
     out = []
     for row in pixels:
@@ -81,6 +68,48 @@ def scale(pixels, factor):
         for _ in range(factor):
             out.append(list(srow))
     return out
+
+
+# --------------------------------------------------------------------------
+# Item sprite pipeline
+# --------------------------------------------------------------------------
+
+def form_pass(px, prot=None):
+    """Directional form lighting: silhouette pixels facing up/left get
+    brighter, those facing down/right get darker — instant pixel-art depth."""
+    def opaque(x, y):
+        return 0 <= x < 16 and 0 <= y < 16 and px[y][x][3] > 0
+
+    out = [row[:] for row in px]
+    for y in range(16):
+        for x in range(16):
+            if px[y][x][3] == 0 or (prot and prot[y][x]):
+                continue
+            r, g, b, a = px[y][x]
+            if not opaque(x + 1, y) or not opaque(x, y + 1):
+                out[y][x] = (clamp(r * 0.62), clamp(g * 0.62), clamp(b * 0.62), a)
+            elif not opaque(x - 1, y) or not opaque(x, y - 1):
+                out[y][x] = (clamp(r * 1.18), clamp(g * 1.18), clamp(b * 1.18), a)
+    return out
+
+
+def sprite(grid, palette, protect="", checker=""):
+    assert len(grid) == 16, "grid must have 16 rows, has %d" % len(grid)
+    px = blank()
+    prot = [[False] * 16 for _ in range(16)]
+    for y, row in enumerate(grid):
+        assert len(row) == 16, "row %d must have 16 chars, has %d: %r" % (y, len(row), row)
+        for x, ch in enumerate(row):
+            if ch == ".":
+                continue
+            c = palette[ch]
+            if ch in checker and (x + y) % 2 == 0:
+                px[y][x] = shade(c, 9)
+            else:
+                px[y][x] = (c[0], c[1], c[2], 255)
+            if ch in protect:
+                prot[y][x] = True
+    return form_pass(px, prot)
 
 
 # --------------------------------------------------------------------------
@@ -247,25 +276,6 @@ HAMMER = [
     DOTS,
 ]
 
-TONGS = [
-    DOTS,
-    DOTS,
-    DOTS,
-    "............TT..",
-    "...........T.T..",
-    "..........T.T...",
-    ".........T.T....",
-    "........T.T.....",
-    ".......TRT......",
-    "......T.T.......",
-    ".....T.T........",
-    "....T.T.........",
-    "...T.T..........",
-    "....T...........",
-    DOTS,
-    DOTS,
-]
-
 BELLOWS = [
     DOTS,
     "..............m.",
@@ -304,28 +314,88 @@ SWORD = [
     DOTS,
 ]
 
-STEEL = {"G": (158, 164, 178), "H": (133, 88, 48), "h": (96, 62, 33),
-         "P": (170, 176, 188), "p": (112, 117, 128)}
+
+def tongs_pixels():
+    """Tongs drawn procedurally: an X of two 2px arms crossing at a riveted
+    pivot, jaws curling together upper-right, handles spread lower-left."""
+    px = blank()
+    steel = (126, 130, 140)
+
+    def put(x, y, c=steel):
+        if 0 <= x < 16 and 0 <= y < 16:
+            px[y][x] = (c[0], c[1], c[2], 255)
+
+    def seg(x0, y0, x1, y1):
+        steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+        for i in range(steps + 1):
+            x = round(x0 + (x1 - x0) * i / steps)
+            y = round(y0 + (y1 - y0) * i / steps)
+            put(x, y)
+            put(x + 1, y)
+
+    seg(7, 8, 12, 2)    # upper jaw arm
+    seg(7, 8, 13, 5)    # lower jaw arm
+    seg(7, 8, 2, 12)    # upper handle
+    seg(7, 8, 4, 14)    # lower handle
+    # The jaw tips curl toward each other around the work.
+    put(14, 3)
+    put(14, 4)
+    rivet = (58, 60, 68)
+    put(7, 8, rivet)
+    put(8, 8, rivet)
+    return form_pass(px)
+
+
+STEEL = {"G": (162, 168, 182), "H": (139, 92, 50), "h": (100, 65, 34),
+         "P": (174, 180, 192), "p": (114, 119, 130)}
 
 ITEM_SPRITES = {
-    "iron_bloom": (BLOOM, {"g": (140, 132, 122), "r": (122, 90, 64), "h": (58, 52, 46)}),
-    "steel_billet": (BILLET, {"h": (200, 203, 210), "b": (139, 141, 148), "d": (88, 90, 97)}),
-    "blade_preform": (PREFORM, {"b": (150, 152, 158), "d": (96, 98, 105)}),
-    "rough_blade": (BLADE, {"e": (184, 186, 192), "b": (142, 144, 150), "d": (93, 95, 102), "t": (74, 74, 80)}),
-    "cracked_blade": (CRACKED, {"e": (184, 186, 192), "b": (142, 144, 150), "d": (93, 95, 102),
-                                "t": (74, 74, 80), "k": (28, 28, 32)}),
-    "quenched_blade": (BLADE, {"e": (154, 163, 181), "b": (109, 116, 136), "d": (63, 67, 86), "t": (58, 58, 68)}),
-    "tempered_blade": (BLADE, {"e": (217, 201, 143), "b": (125, 136, 168), "d": (74, 80, 112), "t": (58, 58, 68)}),
-    "sharp_blade": (BLADE, {"e": (244, 246, 250), "b": (201, 206, 217), "d": (122, 128, 145), "t": (74, 74, 80)}),
-    "sword_guard": (GUARD, {"G": (168, 174, 186), "g": (112, 118, 130), "h": (40, 42, 48)}),
-    "sword_grip": (GRIP, {"c": (150, 156, 168), "H": (133, 88, 48), "h": (92, 60, 32)}),
-    "sword_pommel": (POMMEL, {"P": (170, 176, 188), "W": (220, 224, 232), "k": (45, 47, 53), "p": (112, 117, 128)}),
-    "smithing_hammer": (HAMMER, {"M": (120, 124, 134), "W": (190, 194, 204), "m": (78, 82, 92),
-                                 "H": (133, 88, 48), "h": (96, 62, 33)}),
-    "smithing_tongs": (TONGS, {"T": (120, 124, 134), "R": (70, 73, 82)}),
-    "bellows": (BELLOWS, {"m": (140, 144, 152), "B": (110, 74, 40), "L": (196, 150, 96), "S": (96, 62, 33)}),
-    "forged_steel_sword": (SWORD, dict(STEEL, **{"e": (244, 246, 250), "b": (203, 208, 219), "d": (124, 130, 147)})),
+    "iron_bloom": {"grid": BLOOM, "palette": {"g": (142, 134, 124), "r": (124, 92, 66), "h": (56, 50, 44)},
+                   "checker": "g"},
+    "steel_billet": {"grid": BILLET, "palette": {"h": (206, 209, 216), "b": (141, 143, 150), "d": (84, 86, 93)},
+                     "protect": "h", "checker": "b"},
+    "blade_preform": {"grid": PREFORM, "palette": {"b": (154, 156, 162), "d": (92, 94, 101)},
+                      "checker": "b"},
+    "rough_blade": {"grid": BLADE, "palette": {"e": (196, 198, 204), "b": (142, 144, 150),
+                                               "d": (84, 86, 94), "t": (70, 70, 76)},
+                    "protect": "e", "checker": "b"},
+    "cracked_blade": {"grid": CRACKED, "palette": {"e": (196, 198, 204), "b": (142, 144, 150),
+                                                   "d": (84, 86, 94), "t": (70, 70, 76), "k": (26, 26, 30)},
+                      "protect": "e", "checker": "b"},
+    "quenched_blade": {"grid": BLADE, "palette": {"e": (168, 177, 196), "b": (109, 116, 136),
+                                                  "d": (56, 60, 78), "t": (52, 52, 62)},
+                       "protect": "e", "checker": "b"},
+    "tempered_blade": {"grid": BLADE, "palette": {"e": (224, 206, 140), "b": (122, 133, 168),
+                                                  "d": (64, 70, 102), "t": (52, 52, 62)},
+                       "protect": "e", "checker": "b"},
+    "sharp_blade": {"grid": BLADE, "palette": {"e": (248, 250, 253), "b": (203, 208, 219),
+                                               "d": (112, 118, 136), "t": (70, 70, 76)},
+                    "protect": "e", "checker": "b"},
+    "sword_guard": {"grid": GUARD, "palette": {"G": (172, 178, 190), "g": (116, 122, 134), "h": (38, 40, 46)}},
+    "sword_grip": {"grid": GRIP, "palette": {"c": (154, 160, 172), "H": (139, 92, 50), "h": (96, 62, 33)},
+                   "checker": "H"},
+    "sword_pommel": {"grid": POMMEL, "palette": {"P": (174, 180, 192), "W": (226, 230, 238),
+                                                 "k": (43, 45, 51), "p": (114, 119, 130)},
+                     "protect": "W"},
+    "smithing_hammer": {"grid": HAMMER, "palette": {"M": (124, 128, 138), "W": (196, 200, 210),
+                                                    "m": (76, 80, 90), "H": (139, 92, 50), "h": (100, 65, 34)},
+                        "protect": "W"},
+    "smithing_tongs": {"proc": tongs_pixels},
+    "bellows": {"grid": BELLOWS, "palette": {"m": (144, 148, 156), "B": (112, 76, 42),
+                                             "L": (200, 154, 100), "S": (100, 65, 34)},
+                "checker": "L"},
+    "forged_steel_sword": {"grid": SWORD,
+                           "palette": dict(STEEL, **{"e": (248, 250, 253), "b": (205, 210, 221),
+                                                     "d": (118, 124, 141)}),
+                           "protect": "e", "checker": "b"},
 }
+
+
+def build_item(name):
+    spec = ITEM_SPRITES[name]
+    if "proc" in spec:
+        return spec["proc"]()
+    return sprite(spec["grid"], spec["palette"], spec.get("protect", ""), spec.get("checker", ""))
 
 
 # --------------------------------------------------------------------------
@@ -375,6 +445,8 @@ def tex_forge_top(lit):
                     c = (clamp(r), clamp(g), clamp(b), 255)
                     if noise(x, y, 33, 19) == 0:
                         c = (255, 240, 180, 255)
+                    elif noise(x, y, 37, 13) == 0 and t < 0.55:
+                        c = (46, 36, 30, 255)  # charred coal poking through
                 else:
                     c = shade((40, 35, 30), noise(x, y, 44, 15) - 7)
                     if noise(x, y, 55, 11) == 0:
@@ -390,6 +462,8 @@ def tex_anvil_body():
             c = shade((70, 71, 76), noise(x, y, 66, 11) - 5)
             if x in (0, 15) or y in (0, 15):
                 c = shade((55, 56, 60), noise(x, y, 67, 7) - 3)
+            if y > 11:
+                c = shade((c[0] - 8, c[1] - 8, c[2] - 8), 0)
             px[y][x] = c
     return px
 
@@ -405,6 +479,13 @@ def tex_anvil_top():
             else:
                 c = shade((86, 87, 93), noise(x, y, 73, 11) - 5)
             px[y][x] = c
+    # A working anvil has a square hardy hole and a round pritchel hole...
+    for hx, hy in ((11, 6), (12, 6), (11, 7), (12, 7)):
+        px[hy][hx] = (38, 39, 43, 255)
+    px[7][3] = (44, 45, 49, 255)
+    # ...and years of hammer scars.
+    for sx, sy in ((5, 5), (6, 9), (8, 4), (9, 10), (4, 8), (7, 7)):
+        px[sy][sx] = shade((122, 123, 130), noise(sx, sy, 74, 9) - 4)
     return px
 
 
@@ -660,13 +741,12 @@ def gen_tags():
 # --------------------------------------------------------------------------
 
 def gen_textures():
-    for name, (grid, palette) in ITEM_SPRITES.items():
-        write_png(os.path.join(ASSETS, "textures", "item", name + ".png"), from_grid(grid, palette))
+    for name in ITEM_SPRITES:
+        write_png(os.path.join(ASSETS, "textures", "item", name + ".png"), build_item(name))
     for name, fn in BLOCK_TEXTURES.items():
         write_png(os.path.join(ASSETS, "textures", "block", name + ".png"), fn())
     # Mod icon: the sword, scaled up.
-    sword = from_grid(*ITEM_SPRITES["forged_steel_sword"])
-    write_png(os.path.join(ASSETS, "icon.png"), scale(sword, 8))
+    write_png(os.path.join(ASSETS, "icon.png"), scale(build_item("forged_steel_sword"), 8))
 
 
 def gen_montage(path):
@@ -689,7 +769,7 @@ def gen_montage(path):
                     canvas[oy + y][ox + x] = p
 
     for i, name in enumerate(names):
-        paste(from_grid(*ITEM_SPRITES[name]), 2 + (i % cols) * cell, 2 + (i // cols) * cell)
+        paste(build_item(name), 2 + (i % cols) * cell, 2 + (i // cols) * cell)
     yoff = rows_items * cell + 6
     for i, name in enumerate(blocks):
         paste(BLOCK_TEXTURES[name](), 2 + (i % cols) * cell, yoff + (i // cols) * cell)

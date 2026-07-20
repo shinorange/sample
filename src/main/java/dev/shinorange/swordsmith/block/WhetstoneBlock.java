@@ -105,6 +105,13 @@ public class WhetstoneBlock extends Block {
 			return ItemActionResult.SUCCESS;
 		}
 
+		if (stack.isOf(ModItems.SHARP_BLADE)) {
+			if (!world.isClient) {
+				player.sendMessage(Text.translatable("msg.swordsmith.grind_already_sharp"), true);
+			}
+			return ItemActionResult.SUCCESS;
+		}
+
 		if (stack.getItem() instanceof HeatableItem) {
 			if (!world.isClient) {
 				player.sendMessage(Text.translatable("msg.swordsmith.grind_wrong"), true);
