@@ -1,0 +1,10 @@
+{
+	"variants": {
+		"lit=false": {
+			"model": "swordsmith:block/forge"
+		},
+		"lit=true": {
+			"model": "swordsmith:block/forge_lit"
+		}
+	}
+}

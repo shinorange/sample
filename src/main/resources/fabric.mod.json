@@ -1,0 +1,30 @@
+{
+	"schemaVersion": 1,
+	"id": "swordsmith",
+	"version": "${version}",
+	"name": "Real Swordsmithing | 本格剣鍛冶",
+	"description": "Forge a sword the way real smiths do: smelt a bloom, hammer it out at forging heat, quench, temper, grind, and fit the hilt. No crafting grid involved. / 現実の刀剣製作工程(製錬・鍛造・焼き入れ・焼き戻し・研ぎ・柄付け)を再現。クラフトでは作れません。",
+	"authors": [
+		"shinorange"
+	],
+	"contact": {
+		"repo": "https://github.com/shinorange/sample"
+	},
+	"license": "MIT",
+	"icon": "assets/swordsmith/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.shinorange.swordsmith.Swordsmith"
+		],
+		"client": [
+			"dev.shinorange.swordsmith.client.SwordsmithClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.0",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

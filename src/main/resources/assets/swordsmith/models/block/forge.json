@@ -1,0 +1,8 @@
+{
+	"parent": "minecraft:block/cube_bottom_top",
+	"textures": {
+		"top": "swordsmith:block/forge_top_off",
+		"side": "swordsmith:block/forge_side",
+		"bottom": "swordsmith:block/forge_bottom"
+	}
+}

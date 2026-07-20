@@ -1,0 +1,19 @@
+{
+	"variants": {
+		"facing=north": {
+			"model": "swordsmith:block/smithing_anvil"
+		},
+		"facing=east": {
+			"model": "swordsmith:block/smithing_anvil",
+			"y": 90
+		},
+		"facing=south": {
+			"model": "swordsmith:block/smithing_anvil",
+			"y": 180
+		},
+		"facing=west": {
+			"model": "swordsmith:block/smithing_anvil",
+			"y": 270
+		}
+	}
+}
