@@ -1057,6 +1057,11 @@ HAND_PAINTED_ITEMS = {
     "sharp_blade",
     "sword_guard",
     "sword_grip",
+    "sword_pommel",
+    "smithing_hammer",
+    "smithing_tongs",
+    "bellows",
+    "forged_steel_sword",
 }
 
 
@@ -1070,8 +1075,10 @@ def gen_textures():
         write_png(os.path.join(ASSETS, "textures", "block", name + ".png"), fn())
     write_png(os.path.join(ASSETS, "textures", "gui", "forge.png"), tex_gui_forge())
     write_png(os.path.join(ASSETS, "textures", "gui", "advancement_bg.png"), tex_advancement_bg())
-    # Mod icon: the sword, scaled up.
-    write_png(os.path.join(ASSETS, "icon.png"), scale(build_item("forged_steel_sword"), 8))
+    # Mod icon: the sword, scaled up. Preserved when the sword art is hand-made.
+    icon_path = os.path.join(ASSETS, "icon.png")
+    if "forged_steel_sword" not in HAND_PAINTED_ITEMS or not os.path.exists(icon_path):
+        write_png(icon_path, scale(build_item("forged_steel_sword"), 8))
 
 
 def gen_montage(path):
