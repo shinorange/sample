@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches:
+      - claude/minecraft-realistic-sword-crafting-qp3fpy
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew build --stacktrace
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swordsmith-jar
+          path: build/libs/*.jar
+
+      - name: Publish dev-build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create dev-build --prerelease \
+            --title "Dev build" \
+            --notes "自動ビルド (commit ${{ github.sha }})" || true
+          gh release upload dev-build build/libs/swordsmith-*.jar --clobber
