@@ -1,0 +1,19 @@
+{
+	"variants": {
+		"facing=north": {
+			"model": "swordsmith:block/whetstone"
+		},
+		"facing=east": {
+			"model": "swordsmith:block/whetstone",
+			"y": 90
+		},
+		"facing=south": {
+			"model": "swordsmith:block/whetstone",
+			"y": 180
+		},
+		"facing=west": {
+			"model": "swordsmith:block/whetstone",
+			"y": 270
+		}
+	}
+}

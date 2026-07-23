@@ -1,0 +1,32 @@
+{
+	"display": {
+		"icon": {
+			"item": "swordsmith:steel_billet"
+		},
+		"title": {
+			"translate": "advancement.swordsmith.steel_billet.title"
+		},
+		"description": {
+			"translate": "advancement.swordsmith.steel_billet.desc"
+		},
+		"frame": "task",
+		"show_toast": true,
+		"announce_to_chat": true,
+		"hidden": false
+	},
+	"criteria": {
+		"has_item": {
+			"trigger": "minecraft:inventory_changed",
+			"conditions": {
+				"items": [
+					{
+						"items": [
+							"swordsmith:steel_billet"
+						]
+					}
+				]
+			}
+		}
+	},
+	"parent": "swordsmith:smithing/iron_bloom"
+}

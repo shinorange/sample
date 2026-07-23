@@ -1,0 +1,20 @@
+{
+	"type": "minecraft:crafting_shaped",
+	"category": "building",
+	"pattern": [
+		"CC",
+		"PP"
+	],
+	"key": {
+		"C": {
+			"item": "minecraft:smooth_stone"
+		},
+		"P": {
+			"tag": "minecraft:planks"
+		}
+	},
+	"result": {
+		"id": "swordsmith:whetstone",
+		"count": 1
+	}
+}

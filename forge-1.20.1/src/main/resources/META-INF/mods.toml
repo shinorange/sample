@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+issueTrackerURL="https://github.com/shinorange/sample/issues"
+
+[[mods]]
+modId="swordsmith"
+version="1.0.0"
+displayName="Real Swordsmithing | 本格剣鍛冶"
+logoFile="logo.png"
+authors="shinorange"
+description='''
+Forge a sword the way real smiths do: smelt a bloom, hammer it at forging heat,
+quench at cherry red, temper over a banked fire, grind the edge and fit the hilt.
+No crafting grid involved — and the sword is only as good as your work.
+
+現実の刀剣製作工程(製錬・鍛造・焼き入れ・焼き戻し・研ぎ・柄付け)を再現。
+剣はクラフトでは作れず、攻撃力はあなたの腕前で決まります。
+'''
+
+[[dependencies.swordsmith]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.swordsmith]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="BOTH"

@@ -1,0 +1,10 @@
+{
+	"variants": {
+		"filled=false": {
+			"model": "swordsmith:block/quenching_barrel_empty"
+		},
+		"filled=true": {
+			"model": "swordsmith:block/quenching_barrel_filled"
+		}
+	}
+}

@@ -1,0 +1,19 @@
+{
+	"type": "minecraft:crafting_shaped",
+	"category": "misc",
+	"pattern": [
+		"NIN"
+	],
+	"key": {
+		"N": {
+			"item": "minecraft:iron_nugget"
+		},
+		"I": {
+			"item": "minecraft:iron_ingot"
+		}
+	},
+	"result": {
+		"id": "swordsmith:sword_guard",
+		"count": 1
+	}
+}

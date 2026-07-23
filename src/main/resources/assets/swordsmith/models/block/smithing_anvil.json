@@ -1,0 +1,8 @@
+{
+	"parent": "minecraft:block/template_anvil",
+	"textures": {
+		"particle": "swordsmith:block/anvil_body",
+		"body": "swordsmith:block/anvil_body",
+		"top": "swordsmith:block/anvil_top"
+	}
+}

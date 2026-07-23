@@ -1,0 +1,32 @@
+{
+	"display": {
+		"icon": {
+			"id": "swordsmith:smithing_hammer"
+		},
+		"title": {
+			"translate": "advancement.swordsmith.root.title"
+		},
+		"description": {
+			"translate": "advancement.swordsmith.root.desc"
+		},
+		"frame": "task",
+		"show_toast": false,
+		"announce_to_chat": false,
+		"hidden": false,
+		"background": "swordsmith:textures/gui/advancement_bg.png"
+	},
+	"criteria": {
+		"has_item": {
+			"trigger": "minecraft:inventory_changed",
+			"conditions": {
+				"items": [
+					{
+						"items": [
+							"swordsmith:smithing_hammer"
+						]
+					}
+				]
+			}
+		}
+	}
+}

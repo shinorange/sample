@@ -1,0 +1,6 @@
+{
+	"parent": "minecraft:item/handheld",
+	"textures": {
+		"layer0": "swordsmith:item/forged_steel_sword"
+	}
+}

@@ -1,0 +1,58 @@
+plugins {
+	id 'eclipse'
+	id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+}
+
+version = '1.0.0'
+group = 'dev.shinorange'
+
+base {
+	archivesName = 'swordsmith-forge'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+	mappings channel: 'official', version: '1.20.1'
+	copyIdeResources = true
+
+	runs {
+		configureEach {
+			workingDirectory project.file('run')
+			property 'forge.logging.markers', 'REGISTRIES'
+			property 'forge.logging.console.level', 'debug'
+			mods {
+				swordsmith {
+					source sourceSets.main
+				}
+			}
+		}
+		client {
+		}
+		server {
+			args '--nogui'
+		}
+	}
+}
+
+dependencies {
+	minecraft 'net.minecraftforge:forge:1.20.1-47.3.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+}
+
+jar {
+	manifest {
+		attributes([
+				'Specification-Title'   : 'swordsmith',
+				'Specification-Vendor'  : 'shinorange',
+				'Specification-Version' : '1',
+				'Implementation-Title'  : project.name,
+				'Implementation-Version': project.version,
+				'Implementation-Vendor' : 'shinorange'
+		])
+	}
+	finalizedBy 'reobfJar'
+}
