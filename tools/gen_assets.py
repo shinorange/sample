@@ -6,6 +6,7 @@ Usage: python3 tools/gen_assets.py [--montage OUTPUT.png]
 """
 import json
 import os
+import shutil
 import struct
 import sys
 import zlib
@@ -14,6 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, "src", "main", "resources")
 ASSETS = os.path.join(RES, "assets", "swordsmith")
 DATA = os.path.join(RES, "data")
+FORGE_RES = os.path.join(ROOT, "forge-1.20.1", "src", "main", "resources")
 
 
 # --------------------------------------------------------------------------
@@ -1116,6 +1118,60 @@ def gen_advancements():
     adv("forged_steel_sword", "swordsmith:forged_steel_sword", "sharp_blade", frame="challenge")
 
 
+def gen_forge_resources():
+    """Mirrors the assets into the Forge 1.20.1 project and rewrites the data
+    JSONs into the 1.20.1 dialect: plural folder names (recipes, loot_tables,
+    tags/blocks, advancements), result {item:...} in recipes, icon {item:...}
+    in advancements, and no random_sequence in loot tables."""
+    forge_assets = os.path.join(FORGE_RES, "assets", "swordsmith")
+    for sub in ("blockstates", "lang", "models", "textures"):
+        src = os.path.join(ASSETS, sub)
+        dst = os.path.join(forge_assets, sub)
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, dst)
+
+    # Forge has no BlockRenderLayerMap; the model declares its own layer.
+    whetstone_model = os.path.join(forge_assets, "models", "block", "whetstone.json")
+    with open(whetstone_model, encoding="utf-8") as f:
+        model = json.load(f)
+    model["render_type"] = "minecraft:cutout"
+    J(whetstone_model, model)
+
+    shutil.copyfile(os.path.join(ASSETS, "icon.png"), os.path.join(FORGE_RES, "logo.png"))
+    J(os.path.join(FORGE_RES, "pack.mcmeta"),
+      {"pack": {"pack_format": 15, "description": "Real Swordsmithing resources"}})
+
+    forge_data = os.path.join(FORGE_RES, "data")
+    shutil.rmtree(forge_data, ignore_errors=True)
+
+    recipe_src = os.path.join(DATA, "swordsmith", "recipe")
+    for fn in sorted(os.listdir(recipe_src)):
+        with open(os.path.join(recipe_src, fn), encoding="utf-8") as f:
+            recipe = json.load(f)
+        recipe["result"] = {"item": recipe["result"]["id"], "count": recipe["result"].get("count", 1)}
+        J(os.path.join(forge_data, "swordsmith", "recipes", fn), recipe)
+
+    loot_src = os.path.join(DATA, "swordsmith", "loot_table", "blocks")
+    for fn in sorted(os.listdir(loot_src)):
+        with open(os.path.join(loot_src, fn), encoding="utf-8") as f:
+            table = json.load(f)
+        table.pop("random_sequence", None)
+        J(os.path.join(forge_data, "swordsmith", "loot_tables", "blocks", fn), table)
+
+    tag_src = os.path.join(DATA, "minecraft", "tags", "block", "mineable")
+    for fn in sorted(os.listdir(tag_src)):
+        with open(os.path.join(tag_src, fn), encoding="utf-8") as f:
+            tag = json.load(f)
+        J(os.path.join(forge_data, "minecraft", "tags", "blocks", "mineable", fn), tag)
+
+    adv_src = os.path.join(DATA, "swordsmith", "advancement", "smithing")
+    for fn in sorted(os.listdir(adv_src)):
+        with open(os.path.join(adv_src, fn), encoding="utf-8") as f:
+            adv = json.load(f)
+        adv["display"]["icon"] = {"item": adv["display"]["icon"]["id"]}
+        J(os.path.join(forge_data, "swordsmith", "advancements", "smithing", fn), adv)
+
+
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
@@ -1193,6 +1249,7 @@ def main():
     gen_tags()
     gen_advancements()
     gen_textures()
+    gen_forge_resources()
     if "--montage" in sys.argv:
         gen_montage(sys.argv[sys.argv.index("--montage") + 1])
     if "--gui-preview" in sys.argv:

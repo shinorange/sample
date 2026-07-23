@@ -145,3 +145,15 @@ Minecraft本体・Fabricのダウンロードのため、`piston-meta.mojang.com
 ## License
 
 MIT
+
+## Forge 1.20.1版
+
+`forge-1.20.1/` ディレクトリに **Minecraft 1.20.1 + Forge 47** 向けの移植版があります(機能は同一、Java 17でビルド)。
+
+```bash
+cd forge-1.20.1
+./gradlew build      # → build/libs/swordsmith-forge-1.0.0.jar
+./gradlew runClient
+```
+
+ビルド済みjar: https://github.com/shinorange/sample/releases/download/dev-build/swordsmith-forge-1.0.0.jar

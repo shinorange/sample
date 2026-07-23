@@ -40,3 +40,34 @@ jobs:
             --title "Dev build" \
             --notes "自動ビルド (commit ${{ github.sha }})" || true
           gh release upload dev-build build/libs/swordsmith-*.jar --clobber
+
+  build-forge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build (Forge 1.20.1)
+        working-directory: forge-1.20.1
+        run: |
+          chmod +x gradlew
+          ./gradlew build --stacktrace
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swordsmith-forge-jar
+          path: forge-1.20.1/build/libs/swordsmith-forge-*.jar
+
+      - name: Publish to dev-build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create dev-build --prerelease \
+            --title "Dev build" \
+            --notes "自動ビルド (commit ${{ github.sha }})" || true
+          gh release upload dev-build forge-1.20.1/build/libs/swordsmith-forge-*.jar --clobber

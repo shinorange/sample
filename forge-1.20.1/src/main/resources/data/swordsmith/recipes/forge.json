@@ -1,0 +1,18 @@
+{
+	"type": "minecraft:crafting_shaped",
+	"category": "building",
+	"pattern": [
+		"SSS",
+		"S S",
+		"SSS"
+	],
+	"key": {
+		"S": {
+			"item": "minecraft:stone_bricks"
+		}
+	},
+	"result": {
+		"item": "swordsmith:forge",
+		"count": 1
+	}
+}

@@ -1,0 +1,32 @@
+{
+	"display": {
+		"icon": {
+			"item": "swordsmith:tempered_blade"
+		},
+		"title": {
+			"translate": "advancement.swordsmith.tempered_blade.title"
+		},
+		"description": {
+			"translate": "advancement.swordsmith.tempered_blade.desc"
+		},
+		"frame": "task",
+		"show_toast": true,
+		"announce_to_chat": true,
+		"hidden": false
+	},
+	"criteria": {
+		"has_item": {
+			"trigger": "minecraft:inventory_changed",
+			"conditions": {
+				"items": [
+					{
+						"items": [
+							"swordsmith:tempered_blade"
+						]
+					}
+				]
+			}
+		}
+	},
+	"parent": "swordsmith:smithing/quenched_blade"
+}

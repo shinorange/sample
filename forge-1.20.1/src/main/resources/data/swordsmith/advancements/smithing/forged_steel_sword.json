@@ -1,0 +1,32 @@
+{
+	"display": {
+		"icon": {
+			"item": "swordsmith:forged_steel_sword"
+		},
+		"title": {
+			"translate": "advancement.swordsmith.forged_steel_sword.title"
+		},
+		"description": {
+			"translate": "advancement.swordsmith.forged_steel_sword.desc"
+		},
+		"frame": "challenge",
+		"show_toast": true,
+		"announce_to_chat": true,
+		"hidden": false
+	},
+	"criteria": {
+		"has_item": {
+			"trigger": "minecraft:inventory_changed",
+			"conditions": {
+				"items": [
+					{
+						"items": [
+							"swordsmith:forged_steel_sword"
+						]
+					}
+				]
+			}
+		}
+	},
+	"parent": "swordsmith:smithing/sharp_blade"
+}
