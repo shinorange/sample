@@ -5,6 +5,7 @@
 
 - 対応: **Minecraft 1.21.1 / Fabric Loader 0.16+ / Fabric API / Java 21**
 - ID: `swordsmith`
+- 📖 読み物として楽しめる**遊び方ガイド記事**は [docs/PLAY_GUIDE.md](docs/PLAY_GUIDE.md) へ
 
 ---
 
