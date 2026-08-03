@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""geo_builder.py — Programmatic builder for Minecraft Bedrock entity geometry (.geo.json).
+"""geo_builder.py — Programmatic builder/editor for Minecraft Bedrock entity geometry (.geo.json).
 
-Build mob models in Python instead of hand-writing JSON:
+Build mob models in Python instead of hand-writing JSON — or load an existing
+model for refinement with Model.load(path) (existing UVs stay pinned; new
+cubes auto-pack around them; translate_subtree()/remove_bone() for edits):
 
     from geo_builder import Model
 
@@ -149,6 +151,101 @@ class Model:
 
     def __getitem__(self, name: str) -> Bone:
         return self._by_name[name]
+
+    # -------------------------------------------------------- load & edit
+    @classmethod
+    def load(cls, path: str, index: int = 0) -> "Model":
+        """Load an existing .geo.json for review/refinement.
+
+        Loaded cubes keep their uv anchors (pinned), so pack_uv()/save()
+        leaves existing texture mappings untouched — new cubes added
+        afterwards auto-pack into the remaining free space. This is the
+        backbone of the edit workflow: MOVING cubes never breaks the
+        texture; only RESIZING them changes the UV footprint.
+        """
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        geos = data.get("minecraft:geometry")
+        if not geos:
+            raise ValueError(f"{path}: not a 1.12+ bedrock geometry file "
+                             "(legacy 1.8 files: convert in Blockbench first)")
+        g = geos[index]
+        desc = g.get("description", {})
+        m = cls(desc.get("identifier", "geometry.unnamed"),
+                texture_size=(desc.get("texture_width", 64),
+                              desc.get("texture_height", 64)),
+                format_version=data.get("format_version", "1.12.0"))
+        if "visible_bounds_width" in desc:
+            m.visible_bounds = (desc.get("visible_bounds_width"),
+                                desc.get("visible_bounds_height"),
+                                tuple(desc.get("visible_bounds_offset", (0, 0, 0))))
+        for bj in g.get("bones", []):
+            b = Bone(name=bj.get("name", "?"), parent=bj.get("parent"),
+                     pivot=tuple(bj.get("pivot", (0, 0, 0))),
+                     rotation=tuple(bj["rotation"]) if bj.get("rotation") else None,
+                     mirror=bj.get("mirror"))
+            m.bones.append(b)
+            m._by_name[b.name] = b
+            for cj in bj.get("cubes", []):
+                uv = cj.get("uv", [0, 0])
+                c = Cube(origin=tuple(cj.get("origin", (0, 0, 0))),
+                         size=tuple(cj.get("size", (0, 0, 0))),
+                         uv=None if isinstance(uv, dict) else tuple(uv),
+                         inflate=cj.get("inflate", 0.0),
+                         mirror=cj.get("mirror"),
+                         pivot=tuple(cj["pivot"]) if cj.get("pivot") else None,
+                         rotation=tuple(cj["rotation"]) if cj.get("rotation") else None,
+                         per_face_uv=uv if isinstance(uv, dict) else None)
+                b.cubes.append(c)
+        return m
+
+    def subtree(self, name: str) -> List[str]:
+        """Names of `name` and all its descendant bones."""
+        targets = {name}
+        grew = True
+        while grew:
+            grew = False
+            for b in self.bones:
+                if b.parent in targets and b.name not in targets:
+                    targets.add(b.name)
+                    grew = True
+        return [b.name for b in self.bones if b.name in targets]
+
+    def translate_subtree(self, name: str, delta: Vec3) -> List[str]:
+        """Move a bone and all its descendants (pivots + cubes) by delta.
+
+        Pure translation never changes UV footprints, so the existing
+        texture stays valid. Use for proportion fixes: widen the stance,
+        raise the head, shift the tail base, etc.
+        """
+        dx, dy, dz = delta
+        moved = self.subtree(name)
+        for n in moved:
+            b = self._by_name[n]
+            b.pivot = (b.pivot[0] + dx, b.pivot[1] + dy, b.pivot[2] + dz)
+            for c in b.cubes:
+                c.origin = (c.origin[0] + dx, c.origin[1] + dy, c.origin[2] + dz)
+                if c.pivot:
+                    c.pivot = (c.pivot[0] + dx, c.pivot[1] + dy, c.pivot[2] + dz)
+        return moved
+
+    def remove_bone(self, name: str, recursive: bool = True) -> List[str]:
+        """Remove a bone. recursive=True also removes descendants;
+        recursive=False reattaches children to the removed bone's parent."""
+        if name not in self._by_name:
+            raise KeyError(name)
+        if recursive:
+            targets = set(self.subtree(name))
+        else:
+            targets = {name}
+            new_parent = self._by_name[name].parent
+            for b in self.bones:
+                if b.parent == name:
+                    b.parent = new_parent
+        self.bones = [b for b in self.bones if b.name not in targets]
+        for n in targets:
+            self._by_name.pop(n, None)
+        return sorted(targets)
 
     # ------------------------------------------------------------------ UV
     def pack_uv(self, padding: int = 0) -> None:

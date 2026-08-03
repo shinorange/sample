@@ -8,7 +8,10 @@ description: >-
   .bbmodel を作って・直して」「ドット絵テクスチャを描いて」「モデルの
   プロポーションを確認したい」等、Minecraft の 3D モデルに関わる作業を
   求めたら必ずこのスキルを使うこと。「オリジナルモンスターを追加したい」の
-  ように 3D モデルと明言されない依頼や、既存モデルの改良・レビューでも使う。
+  ように 3D モデルと明言されない依頼でも使う。既存モデルに対する
+  「レビューして」「ブラッシュアップ/改造/改善/修正して」「もっと怖く・
+  かわいくして」「パーツを足して/直して」という依頼も必ずこのスキルで
+  扱う(読み込み・自動レビュー・差分検証のツールがある)。
 ---
 
 # Minecraft MOB 精巧モデリング
@@ -25,11 +28,12 @@ Minecraft の MOB モデルはキューブ(直方体)だけで構成される特
 GeckoLib 経由で Java モッドにも使える最も汎用的な形式
 (Java コード等が必要な場合 → references/geometry-format.md のフォーマット選択ガイド)。
 
-## ワークフロー
+## ワークフロー(新規作成)
 
 精巧なモデルは一発では書けない。**「生成 → 検証 → レンダリング → 目視 → 修正」の
 ループを最低 2〜3 周回す**こと。レンダリング画像を Read して自分の目で確認する
 工程を省略しない(座標のバグ・比率の破綻は画像でしか気づけない)。
+既存モデルへの作業は後述の「レビュー・ブラッシュアップ」から入る。
 
 ### 1. 要件と設計(コードを書く前に決める)
 
@@ -107,6 +111,32 @@ python3 scripts/render_geo.py mymob.geo.json --texture mymob.png -o prev_tex.png
 - アニメーションも欲しいと言われたら references/animation-rigging.md の
   レシピ(歩行 38.17 定数・視線追従・アイドル)から組む
 
+## ワークフロー(既存モデルのレビュー・ブラッシュアップ)
+
+作成済みモデルの改造・改善・修正は references/review-refinement.md に従う。骨子:
+
+```bash
+python3 scripts/review_geo.py model.geo.json --texture model.png  # 自動レビュー
+python3 scripts/render_geo.py model.geo.json --texture model.png -o before.png
+```
+
+1. **レビュー**: 上記 2 つ + 目視チェックリスト(review-refinement.md)で
+   重要度順の指摘リストを作る。「レビューだけ」の依頼ならこのリストと
+   画像が納品物(勝手に修正しない)。[E] は必修、[N]/参考値は設計意図と
+   突き合わせて判断する。
+2. **編集**: 元ファイルを `*.before.geo.json` に退避してから
+   `Model.load()` で読み込んで編集する。**UV 保全の三原則** — 移動・回転は
+   無害 / サイズ変更は UV 破壊(inflate で代用するか再パック+再描画)/
+   追加は自動で安全(新規キューブは空き UV に自動配置、既存 PNG に
+   `face_rects()` の新規矩形だけ描き足す)。`translate_subtree()` /
+   `remove_bone()` / `segment_chain()` が主な編集道具。
+3. **検証**: `review_geo.py 編集後 --diff 編集前` で**意図した変更だけか**を
+   確認 → validate → render で before/after を並べて目視。改善が画像で
+   説明できない修正は改善ではない。報告には before/after を添える。
+
+「もっと怖く/かわいく」等の形容詞依頼は比率の言葉に翻訳してから編集する
+(review-refinement.md のレビュー観点参照)。
+
 ## リファレンス(必要な時に読む)
 
 | ファイル | いつ読むか |
@@ -117,17 +147,18 @@ python3 scripts/render_geo.py mymob.geo.json --texture mymob.png -o prev_tex.png
 | references/texturing.md | テクスチャを描く前(パレット・面別手順・素材イディオム・顔) |
 | references/vanilla-calibration.md | サイズ決定時(バニラ寸法の物差し) |
 | references/animation-rigging.md | pivot 配置の確認・アニメ制作時 |
-| references/worked-example/ | 全工程の実例(fennec)。テクスチャ生成コードを書く前に必読 |
+| references/review-refinement.md | 既存モデルのレビュー・改造・修正の全手順(UV 保全原則・改造レシピ) |
+| references/worked-example/ | 全工程の実例(fennec 新規作成 + refine_fennec 改良)。テクスチャ生成・編集コードを書く前に必読 |
 
 ## スクリプト
 
 | スクリプト | 役割 |
 |---|---|
-| scripts/geo_builder.py | Python でモデル構築。box UV 自動パッキング、segment_chain、uv_map、stats |
+| scripts/geo_builder.py | Python でモデル構築・編集。box UV 自動パッキング、segment_chain、uv_map、Model.load(既存モデル読込)、translate_subtree、remove_bone |
 | scripts/validate_geo.py | .geo.json リント(UV 境界/重複・z-fight・pivot・テクスチャ整合)。--strict で警告も fail |
 | scripts/render_geo.py | 6 ビュー(front/left/right/back/top/iso)を PNG に描画。--texture でテクスチャ確認。要 Pillow |
+| scripts/review_geo.py | 既存モデルの自動レビューレポート(重要度付き指摘+メトリクス)と --diff による編集前後の構造差分 |
 
-既存の .geo.json を渡された場合も validate → render から入る(現状把握が先)。
 Blockbench プロジェクト (.bbmodel) を渡されたら、Blockbench 上で geo.json
 エクスポートしてもらうか、bbmodel 内の `elements`/`outliner` を直接読む
 (構造は geo.json と同型でキーが違うだけ)。
