@@ -6,6 +6,7 @@
   fit       予測モデルを学習して保存
   forecast  任意の時点（既定: 最新足）から 1分〜24時間先を予測（テキスト + JSON + HTML）
   backtest  ウォークフォワード検証
+  rules     トレードルールの探索（約 2,300 個を検証、過剰最適化を除外）
   live      データ更新 → 必要なら再学習 → 予測 を一定間隔で繰り返す
   all       stats + backtest + fit + forecast をまとめて実行
 """
@@ -176,6 +177,23 @@ def cmd_backtest(args):
     print(f"保存: {out / 'backtest.json'}, {out / 'backtest.md'}")
 
 
+def cmd_rules(args):
+    from .rules import rules_markdown, search
+
+    df = _load(args.data, args.tz, args.max_days)
+    print(f"ルール探索中…（コスト: スプレッド ${args.spread:.2f}、スリッページ ${args.slip:.2f}）", flush=True)
+    res = search(df, spread=args.spread, slip=args.slip, is_frac=args.is_frac, B=args.bootstrap)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    md = rules_markdown(res)
+    (out / "rules.md").write_text(md, encoding="utf-8")
+    res["table"].sort_values("is_t", ascending=False).to_csv(out / "rules.csv", index=False)
+    if res["walk_forward"].get("picks"):
+        pd.DataFrame(res["walk_forward"]["picks"]).to_csv(out / "rules_walkforward.csv", index=False)
+    print(md[: md.find("## ルール群ごとの傾向")])
+    print(f"保存: {out / 'rules.md'}, {out / 'rules.csv'}")
+
+
 def cmd_live(args):
     data_path = Path(args.data)
     while True:
@@ -275,6 +293,14 @@ def main(argv=None):
     p.add_argument("--test-frac", type=float, default=0.4)
     p.add_argument("--touch-origins", type=int, default=200)
     p.set_defaults(func=cmd_backtest)
+
+    p = sub.add_parser("rules", help="トレードルールの探索（多重検定補正・検証期間・前進型選択つき）")
+    common(p)
+    p.add_argument("--spread", type=float, default=0.30, help="往復スプレッド（$/oz）")
+    p.add_argument("--slip", type=float, default=0.10, help="ストップ約定時のスリッページ（$/oz）")
+    p.add_argument("--is-frac", type=float, default=0.6, help="探索に使う期間の割合（残りは検証）")
+    p.add_argument("--bootstrap", type=int, default=1000, help="多重検定補正のブートストラップ回数")
+    p.set_defaults(func=cmd_rules)
 
     p = sub.add_parser("live", help="定期的に データ更新→予測")
     common(p)

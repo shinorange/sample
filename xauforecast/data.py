@@ -196,9 +196,12 @@ def market_open_mask(idx_utc: pd.DatetimeIndex) -> np.ndarray:
 
 
 def synthetic(days: int = 420, seed: int = 7, start: str = "2025-01-05 22:00",
-              p0: float = 2650.0, annual_vol: float = 0.17, drift_ann: float = 0.0) -> pd.DataFrame:
+              p0: float = 2650.0, annual_vol: float = 0.17, drift_ann: float = 0.0,
+              edge: float = 0.0) -> pd.DataFrame:
     """GARCH 的なボラティリティ・クラスタリング、日中季節性、指標発表スパイク、
-    週末ギャップ、ファットテール、マイクロストラクチャ・ノイズを持つ合成 1 分足。"""
+    週末ギャップ、ファットテール、マイクロストラクチャ・ノイズを持つ合成 1 分足。
+
+    edge > 0 のときは、ルール探索の検出力を確かめるための既知の優位性を埋め込む（実際の相場ではない）。"""
     rng = np.random.default_rng(seed)
     idx = pd.date_range(pd.Timestamp(start, tz="UTC"), periods=days * 1440, freq="min")
     is_open = market_open_mask(idx)
@@ -247,6 +250,13 @@ def synthetic(days: int = 420, seed: int = 7, start: str = "2025-01-05 22:00",
     r[weekend_reopen] += rng.standard_normal(weekend_reopen.sum()) * 0.004
     r[reopen & ~weekend_reopen] += rng.standard_normal((reopen & ~weekend_reopen).sum()) * base * 3
 
+    if edge:
+        # 検証用に「既知の優位性」を埋め込む: アジア時間（18:00〜03:00 NY）の方向に、
+        # ロンドン序盤（03:00〜05:00 NY）が 1 分あたり edge×σ だけ続く（レンジブレイクの順張りが有利になる）
+        asia = is_open & ((mod >= 18 * 60) | (mod < 3 * 60))
+        asia_ret = np.bincount(tday, weights=np.where(asia, r, 0.0), minlength=nd)
+        lon = is_open & (mod >= 3 * 60) & (mod < 5 * 60)
+        r = r + np.where(lon, edge * base * np.sign(asia_ret[tday]), 0.0)
     eff = np.log(p0) + np.cumsum(r)
     # バー内の高値・安値（ブラウン橋の近似）
     rng_hl = np.abs(sig) * (0.6 + 0.6 * np.abs(rng.standard_normal(n)))

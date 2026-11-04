@@ -184,3 +184,34 @@ def test_feature_report(fitted):
     m, _, _ = fitted
     md = report.features_markdown(m)
     assert "予測力が高い統計量" in md and len(m.feature_ic_table()) == len(m.feature_names)
+
+
+# --------------------------------------------------------------------- rules
+def test_rule_search_rejects_noise_and_finds_planted_edge():
+    from xauforecast.rules import search
+
+    # 優位性のないデータでは何も採用しない（偽陽性の抑制）
+    # 検証期間（後半 40%）が短いと本物の優位性でも t が足りず不採用になるため、約 1.2 年分を使う
+    null = search(synthetic(days=420, seed=11), B=200, verbose=False)
+    assert len(null["accepted"]) == 0
+    # 既知の優位性（アジアの方向にロンドン序盤が続く）を埋め込むと、そのルールを見つける（検出力）
+    res = search(synthetic(days=420, seed=11, edge=0.07), B=200, verbose=False)
+    acc = res["accepted"]["rule"].tolist()
+    assert any("アジア(18-3時)の方向" in r and "順張り" in r for r in acc), acc[:5]
+    assert all(r.startswith("J ") or "アジア" in r for r in acc), acc
+
+
+def test_simulate_stop_and_target():
+    from xauforecast.rules import T, DayData, simulate
+
+    D = 2
+    C = np.full((D, T), 100.0)
+    H, L = C.copy(), C.copy()
+    H[0, 10] = 103.0   # 1 日目: 利確に先に到達
+    L[1, 10] = 97.0    # 2 日目: 損切に先に到達
+    dd = DayData(pd.DatetimeIndex(["2025-01-06", "2025-01-07"]), C.copy(), H, L, C, np.zeros((D, T)),
+                 np.ones((D, T), bool), np.ones(D), np.ones(D), np.ones(D), np.ones(D), np.zeros(D, int), np.zeros(D, bool))
+    r = simulate(dd, np.array([5, 5]), np.array([1, 1]), np.array([100.0, 100.0]), np.array([98.0, 98.0]),
+                 np.array([102.0, 102.0]), np.array([100, 100]), spread=0.3, slip=0.1)
+    assert r["pnl_usd"][0] == pytest.approx(2.0 - 0.3)
+    assert r["pnl_usd"][1] == pytest.approx(-2.0 - 0.3 - 0.1)
