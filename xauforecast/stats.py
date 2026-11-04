@@ -871,7 +871,7 @@ def advanced(grid: Grid, daily: pd.DataFrame) -> dict:
     td = (ny + pd.Timedelta(hours=7)).normalize().tz_localize(None)
     lc = np.log(df["close"].to_numpy())
     r = np.r_[0.0, np.diff(lc)]
-    gap = np.r_[True, np.diff(df.index.asi8) > 60 * 10**9]
+    gap = np.r_[True, np.diff(df.index.as_unit("ns").asi8) > 60 * 10**9]
     r[gap] = 0.0  # 休場明けのギャップは除外
     rs = pd.Series(r, index=df.index)
 

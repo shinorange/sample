@@ -222,7 +222,7 @@ def synthetic(days: int = 420, seed: int = 7, start: str = "2025-01-05 22:00",
     prof[(dow == 6) & (mod >= 18 * 60) & (mod < 19 * 60)] *= 1.3
 
     # 日次ボラティリティ状態（対数 AR(1)）＋ 時間スケールの状態
-    tday = ((ny + pd.Timedelta(hours=7)).normalize().asi8 // (86400 * 10**9)).astype(np.int64)
+    tday = ((ny + pd.Timedelta(hours=7)).normalize().as_unit("ns").asi8 // (86400 * 10**9)).astype(np.int64)
     tday -= tday.min()
     nd = tday.max() + 1
     lv = np.zeros(nd)

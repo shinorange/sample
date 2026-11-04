@@ -156,7 +156,7 @@ class Forecaster:
             nbr_oof[te] = trs[nn.kneighbors(A[te], return_distance=False)]
         fin = _sub(np.arange(n), 60000)
         self._nn = NearestNeighbors(n_neighbors=self.knn_k).fit(A[fin])
-        self.analog = {"A_rows": fin, "time": grid.idx[P[fin]].asi8, "z": {}, "ret": {}}
+        self.analog = {"A_rows": fin, "time": grid.idx[P[fin]].as_unit("ns").asi8, "z": {}, "ret": {}}
 
         for h in self.horizons:
             hm = self._fit_horizon(grid, fs, h, P, Xs, Xh, folds, nbr_oof, how, reg_col, Rx, rx_rows, verbose)
@@ -506,8 +506,14 @@ class Forecaster:
                                          "median_usd": float(p0 * np.expm1(np.median(rr))),
                                          "q10_usd": float(p0 * np.expm1(np.quantile(rr, 0.1))),
                                          "q90_usd": float(p0 * np.expm1(np.quantile(rr, 0.9)))})
-        for i, d in zip(idx[:8], dist[0][:8]):
-            t = pd.Timestamp(int(self.analog["time"][i]), tz="UTC")
+        chosen = []
+        for i, d in zip(idx, dist[0]):
+            t = pd.Timestamp(int(self.analog["time"][i]), unit="ns", tz="UTC")
+            if any(abs((t - c).total_seconds()) < 6 * 3600 for c in chosen):
+                continue  # 同じ局面（6 時間以内）の重複を除く
+            chosen.append(t)
+            if len(chosen) > 8:
+                break
             row = {"time_utc": str(t)[:16], "distance": float(d)}
             for h in (60, 240, 1440):
                 if h in self.analog["ret"]:

@@ -150,8 +150,8 @@ def compute_features(grid, f: np.ndarray, Cf: np.ndarray, L: dict, eps: float,
     add("nfp_day", nfp_day, "イベント")
     add("nfp_near", nfp_day * np.exp(-np.abs(g.mod - 510) / 60.0), "イベント")
     if events is not None and len(events):
-        et = np.sort(pd.DatetimeIndex(events).tz_convert("UTC").asi8)
-        t = g.idx.asi8
+        et = np.sort(pd.DatetimeIndex(events).tz_convert("UTC").as_unit("ns").asi8)
+        t = g.idx.as_unit("ns").asi8
         i = np.searchsorted(et, t, side="left")
         nxt = np.where(i < len(et), (et[np.minimum(i, len(et) - 1)] - t) / 6e10, 1e9)
         j = np.searchsorted(et, t, side="right") - 1
