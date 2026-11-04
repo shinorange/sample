@@ -11,8 +11,11 @@
   H. ドンチャン         N 時間の高値・安値ブレイク（N/2 の逆ブレイクで決済）
   I. RSI               1 時間足 RSI の過熱で逆張り / 順張り
   J. セッション順/逆張り アジア・ロンドン等の方向に、次の時間帯で順張り / 逆張り（日中モメンタム）
+  K. ロンドン・フィキシング AM/PM フィックス前後、「ロンドン始値→PM フィックス」等の時間帯（ロンドン時間で夏時間対応）
+  L. FOMC              政策決定日の 14:00 発表の初動に順張り / 逆張り、発表前のドリフト（組み込みカレンダー）
 
 コスト: スプレッド（往復、既定 $0.30/oz）と、ストップ約定時のスリッページ（既定 $0.10/oz）。
+スプレッドは時間帯で変える（18:00〜19:00 NY の再開時 4 倍、8:30 指標直後 3 倍、10:00 / 14:00 直後と引け前 2 倍）。
 同じ足でストップと利確の両方に届いた場合は、ストップが先と仮定（保守的）。
 
 過剰最適化の対策:
@@ -58,6 +61,8 @@ class DayData:
     prev_c: np.ndarray
     weekday: np.ndarray   # 取引日ラベルの曜日（0=月）
     nfp: np.ndarray       # 雇用統計日（第 1 金曜と推定）
+    smult: np.ndarray | None = None  # 分ごとのスプレッド倍率（取引日の分インデックス）
+    fomc: np.ndarray | None = None   # FOMC 政策決定日
 
 
 def day_matrix(df: pd.DataFrame, min_bars: int = 600) -> DayData:
@@ -89,7 +94,21 @@ def day_matrix(df: pd.DataFrame, min_bars: int = 600) -> DayData:
     prev_c = np.r_[np.nan, C[:-1, -1]]
     wd = dates.dayofweek.to_numpy()
     nfp = (wd == 4) & (dates.day.to_numpy() <= 7)
-    return DayData(dates, O, H, L, C, V, valid, atr, prev_h, prev_l, prev_c, wd, nfp)
+    from .calendar import FOMC_DECISION_DATES
+
+    fomc = dates.normalize().isin(pd.DatetimeIndex(FOMC_DECISION_DATES))
+    return DayData(dates, O, H, L, C, V, valid, atr, prev_h, prev_l, prev_c, wd, nfp, spread_profile(), np.asarray(fomc))
+
+
+def spread_profile() -> np.ndarray:
+    """時間帯によるスプレッドの広がり（通常 = 1）。再開直後（ロールオーバー）と指標発表直後は広がる。"""
+    m = np.ones(T)
+    m[M(18):M(19)] = 4.0          # 18:00〜19:00 NY（日次再開・ロールオーバー）
+    m[M(8, 30):M(8, 35)] = 3.0    # 8:30 指標
+    m[M(10):M(10, 3)] = 2.0       # 10:00 指標
+    m[M(14):M(14, 5)] = 2.0       # 14:00（FOMC 等）
+    m[M(16, 55):] = 2.0           # 引け直前
+    return m
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +139,11 @@ def simulate(dd: DayData, e: np.ndarray, s: np.ndarray, px: np.ndarray, sl: np.n
     exit_px = np.where(stop_first, sl_fill, np.where(tp_first, tp, exit_px))
     exit_i = np.where(stop_first, i_sl, np.where(tp_first, i_tp, xi))
     with np.errstate(invalid="ignore"):
-        pnl = s * (exit_px - px) - spread - np.where(stop_first, slip, 0.0)
+        if dd.smult is not None:
+            cost = spread * (dd.smult[np.clip(e, 0, T - 1)] + dd.smult[np.clip(exit_i, 0, T - 1)]) / 2
+        else:
+            cost = spread
+        pnl = s * (exit_px - px) - cost - np.where(stop_first, slip, 0.0)
     pnl = np.where(trade, pnl, 0.0)
     # 最大含み益（MFE）
     upto = (cols > e2) & (cols <= exit_i[:, None]) & trade[:, None]
@@ -320,6 +343,58 @@ def family_session_momentum(dd: DayData, spread: float, slip: float):
                            simulate(dd, e, sgn, ent, sl, nan, np.full(D, xt), spread, slip))
 
 
+def _local_index(dd: DayData, tz: str, hh: int, mm: int) -> np.ndarray:
+    """各取引日の、現地時刻 hh:mm に当たる分インデックス（夏時間のずれを日ごとに反映）。"""
+    loc = pd.DatetimeIndex([pd.Timestamp(d.date()) + pd.Timedelta(hours=hh, minutes=mm) for d in dd.dates])
+    ny = loc.tz_localize(tz, nonexistent="shift_forward", ambiguous="NaT").tz_convert(NY)
+    return ((ny.hour.to_numpy() * 60 + ny.minute.to_numpy()) - 1080) % 1440
+
+
+def family_london_fix(dd: DayData, spread: float, slip: float):
+    """ロンドン・フィキシング前後と、文献で報告された時間帯パターン（アジア時間の上昇、ロンドン時間の下落）。"""
+    D = len(dd.dates)
+    nan = np.full(D, np.nan)
+    lon = lambda h, m=0: _local_index(dd, "Europe/London", h, m)
+    am, pm, lo_open = lon(10, 30), lon(15), lon(8)
+    for name, fx in (("AMフィックス(10:30ロンドン)", am), ("PMフィックス(15:00ロンドン)", pm)):
+        for before in (30, 15, 5):
+            for after in (5, 15, 30):
+                e = np.clip(fx - before - 1, 0, T - 2)
+                x = np.clip(fx + after - 1, 1, T - 1)
+                for s0, lab in ((-1, "売り"), (1, "買い")):
+                    yield (f"K {name} {before}分前→{after}分後 {lab}", "K",
+                           simulate(dd, e, np.full(D, s0), dd.C[np.arange(D), e], nan, nan, x, spread, slip))
+    windows = [("ロンドン始値(8:00)→PMフィックス", lo_open, pm), ("AMフィックス→PMフィックス", am, pm),
+               ("PMフィックス→NY17時", pm, np.full(D, T - 1)), ("アジア開始(18時NY)→ロンドン8:00", np.zeros(D, int), lo_open)]
+    for name, a, b in windows:
+        e = np.clip(a - 1, 0, T - 2)
+        for s0, lab in ((-1, "売り"), (1, "買い")):
+            yield (f"K 時間帯 {name} {lab}", "K",
+                   simulate(dd, e, np.full(D, s0), dd.C[np.arange(D), e], nan, nan, np.clip(b - 1, 1, T - 1), spread, slip))
+
+
+def family_fomc(dd: DayData, spread: float, slip: float):
+    """FOMC 政策決定日（14:00 NY 発表）の初動に順張り / 逆張り、と発表前のドリフト。"""
+    D = len(dd.dates)
+    nan = np.full(D, np.nan)
+    ok = dd.fomc if dd.fomc is not None else np.zeros(D, bool)
+    t = M(14)
+    for w in (1, 5, 15):
+        e = np.full(D, t + w - 1)
+        move = dd.C[:, t + w - 1] - dd.C[:, t - 1]
+        for mode in ("順張り", "逆張り"):
+            s = np.sign(move).astype(int) * (1 if mode == "順張り" else -1)
+            px = dd.C[:, t + w - 1]
+            for hold in (15, 60, 120, None):
+                x = np.full(D, T - 1) if hold is None else np.minimum(e + hold, T - 1)
+                yield (f"L FOMC 初動{w}分{mode} 保有{hold or '引けまで'}{'分' if hold else ''}", "L",
+                       simulate(dd, np.where(ok & (s != 0), e, -1), s, px, nan, nan, x, spread, slip))
+    for s0, lab in ((1, "買い"), (-1, "売り")):
+        e = np.full(D, M(8, 20))
+        yield (f"L FOMC 発表前 8:20→14:00 {lab}", "L",
+               simulate(dd, np.where(ok, e, -1), np.full(D, s0), dd.C[:, M(8, 20)], nan, nan, np.full(D, t - 1), spread, slip))
+
+
 # ---------------------------------------------------------------------------
 # 時間足ベースのルール（複数日にまたがる）
 # ---------------------------------------------------------------------------
@@ -393,7 +468,8 @@ def family_hourly(hf: pd.DataFrame, dd: DayData, spread: float, slip: float):
 
 
 FAMILY_NAMES = {"A": "レンジブレイク", "B": "時刻イベント", "C": "時間帯保有", "D": "平均回帰", "E": "前日高安ブレイク",
-                "F": "ギャップ埋め", "G": "時系列モメンタム", "H": "ドンチャン", "I": "RSI", "J": "セッション順張り/逆張り"}
+                "F": "ギャップ埋め", "G": "時系列モメンタム", "H": "ドンチャン", "I": "RSI", "J": "セッション順張り/逆張り",
+                "K": "ロンドン・フィキシング/時間帯", "L": "FOMC"}
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +543,7 @@ def search(df: pd.DataFrame, spread: float = 0.30, slip: float = 0.10, is_frac: 
     names, fams, P_bp, P_usd, TR, MFE = [], [], [], [], [], []
     gens = [family_range_breakout(dd, spread, slip), family_event(dd, spread, slip), family_time_of_day(dd, spread, slip),
             family_mean_reversion(dd, spread, slip), family_prior_day(dd, spread, slip), family_gap(dd, spread, slip),
-            family_session_momentum(dd, spread, slip),
+            family_session_momentum(dd, spread, slip), family_london_fix(dd, spread, slip), family_fomc(dd, spread, slip),
             family_hourly(hf, dd, spread, slip)]
     for g in gens:
         for name, fam, r in g:
@@ -536,13 +612,26 @@ def search(df: pd.DataFrame, spread: float = 0.30, slip: float = 0.10, is_frac: 
                                                   mean_oos_t=("oos_t", "mean")).reset_index()
     fam_sum["name"] = fam_sum["family"].map(FAMILY_NAMES)
     top_is = tab[eligible].sort_values("is_t", ascending=False).head(top)
+    # 上位ルールの年別成績（効果が特定の年だけに偏っていないか）
+    years = dd.dates.year.to_numpy()
+    show = pd.concat([tab[tab["accepted"]], top_is.head(8)]).drop_duplicates("rule").head(15)
+    yrows = []
+    for _, r in show.iterrows():
+        i = names.index(r["rule"])
+        row = {"rule": r["rule"]}
+        for y in np.unique(years):
+            m = (years == y) & TR[i]
+            row[str(y)] = float(P_usd[i, m].mean()) if m.sum() >= 5 else None
+            row[f"n{y}"] = int(m.sum())
+        yrows.append(row)
+    yearly = pd.DataFrame(yrows)
     # 値幅: 平均 MFE が大きいルール（参考）
     rng_tab = tab[eligible & tab["is_avg_mfe_usd"].notna()].sort_values("is_avg_mfe_usd", ascending=False).head(10)
     return {
         "period": [str(dd.dates[0].date()), str(dd.dates[-1].date())], "is_period": [str(dd.dates[0].date()), str(dd.dates[cut - 1].date())],
         "oos_period": [str(dd.dates[cut].date()), str(dd.dates[-1].date())], "n_rules": int(R), "n_eligible": int(eligible.sum()),
         "spread": spread, "slip": slip, "table": tab, "top_is": top_is, "accepted": tab[tab["accepted"]].sort_values("p_adj"),
-        "families": fam_sum, "walk_forward": wf, "range_capture": rng_tab,
+        "families": fam_sum, "walk_forward": wf, "range_capture": rng_tab, "yearly": yearly,
         "expected_max_t_null": float(sps.norm.ppf(1 - 1 / max(eligible.sum(), 2))),
     }
 
@@ -584,6 +673,14 @@ def rules_markdown(res: dict) -> str:
     for _, r in res["top_is"].iterrows():
         L.append(f"| {r['rule']} | {f(r['is_t'])} | {f(r['p_adj'], 3)} | {r['is_trades']} | {f(r['is_win_rate'] * 100, 1)}% | {f(r['is_per_trade_usd'])} | "
                  f"{f(r['oos_t'])} | {r['oos_trades']} | {f(r['oos_win_rate'] * 100, 1)}% | {f(r['oos_per_trade_usd'])} |")
+    yt = res.get("yearly")
+    if yt is not None and len(yt):
+        ys = [c for c in yt.columns if c.isdigit()]
+        L += ["\n## 上位ルールの年別成績（1 回あたり平均損益 $、取引 5 回未満は -）\n",
+              "特定の年だけで稼いでいるルールは、その年の相場環境に依存している可能性があります。\n",
+              "| ルール | " + " | ".join(ys) + " |", "|---|" + "---|" * len(ys)]
+        for _, r in yt.iterrows():
+            L.append(f"| {r['rule']} | " + " | ".join(f"{f(r[y])} ({r['n' + y]})" for y in ys) + " |")
     rc = res["range_capture"]
     if len(rc):
         L += ["\n## 値幅（最大含み益 MFE）が大きいルール（参考）\n", "動く局面を捉えているかの目安です。MFE が大きくても損益がプラスとは限りません。\n",

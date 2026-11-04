@@ -73,7 +73,11 @@ def cmd_stats(args):
     from .stats import collect_stats, load_events
 
     df = _load(args.data, args.tz, args.max_days)
-    ev = load_events(args.events) if args.events else None
+    from .calendar import fomc_times
+
+    ev = pd.DataFrame({"time": fomc_times(), "name": "FOMC(組み込み)"})
+    if args.events:
+        ev = pd.concat([ev, load_events(args.events)], ignore_index=True)
     st = collect_stats(df, events=ev)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -84,12 +88,15 @@ def cmd_stats(args):
 
 
 def _events(args):
+    """--events の CSV（指定がなければ組み込みの FOMC カレンダー）。"""
+    from .calendar import fomc_times
+
     path = getattr(args, "events", None)
     if not path:
-        return None
+        return fomc_times()
     from .stats import load_events
 
-    return pd.DatetimeIndex(load_events(path)["time"])
+    return pd.DatetimeIndex(load_events(path)["time"]).append(fomc_times()).unique().sort_values()
 
 
 def _fit(df: pd.DataFrame, model_path: str, args=None) -> tuple[Forecaster, Grid]:
