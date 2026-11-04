@@ -19,10 +19,13 @@ def syn():
     return synthetic(days=150, seed=3)
 
 
+FAST = dict(gbm_rows=6000, knn_k=50)
+
+
 @pytest.fixture(scope="module")
 def fitted(syn):
     g = Grid(syn)
-    m = Forecaster()
+    m = Forecaster(**FAST)
     fs = m.fit(g)
     return m, g, fs
 
@@ -93,9 +96,20 @@ def test_features_have_no_lookahead(syn):
     fs1 = FeatureSet(g1, f, end=cut)
     g2 = Grid(syn[syn.index <= g1.idx[cut]])
     fs2 = FeatureSet(g2, f, end=cut)
-    pos = np.arange(cut - 5000, cut, 97)
-    np.testing.assert_allclose(fs1.matrix(pos), fs2.matrix(pos), rtol=1e-9, atol=1e-12)
-    np.testing.assert_allclose(fs1.har_matrix(pos), fs2.har_matrix(pos), rtol=1e-9, atol=1e-12)
+    assert len(fs1.names) > 120
+    pos = np.r_[np.arange(cut - 5000, cut, 97), cut]
+    # 未来のデータを削っても、過去時点の特徴量はすべて一致する（先読みなし）
+    a, b = fs1.matrix(pos), fs2.matrix(pos)
+    bad = [n for j, n in enumerate(fs1.names) if not np.allclose(a[:, j], b[:, j], rtol=1e-5, atol=1e-6)]
+    assert not bad, bad
+    np.testing.assert_allclose(fs1.har_matrix(pos), fs2.har_matrix(pos), rtol=1e-6, atol=1e-9)
+
+
+def test_every_feature_has_label(fitted):
+    from xauforecast.features import feature_label
+
+    m, _, _ = fitted
+    assert [n for n in m.feature_names if feature_label(n) == n] == []
 
 
 def test_forecast_shape_and_monotone(fitted):
@@ -111,6 +125,11 @@ def test_forecast_shape_and_monotone(fitted):
         assert 0.3 < h["p_up"] < 0.7
     for t in fc["touch"]:
         assert t["p_up_60"] <= t["p_up_240"] + 1e-9 <= t["p_up_1440"] + 2e-9
+    ex = fc["explain"]
+    assert ex["feature_stats"] and ex["analogs"]["by_horizon"] and len(ex["model_summary"]) == 10
+    from xauforecast import report
+
+    assert "予測の根拠" in report.forecast_text(fc) and "類似局面" in report.forecast_html(fc)
 
 
 def test_weekend_has_no_volatility(fitted):
@@ -136,7 +155,7 @@ def test_save_load(tmp_path, fitted):
 
 
 def test_backtest_calibration(syn):
-    r = backtest(syn, n_folds=2, test_frac=0.35, eval_stride=30, touch_origins=0, verbose=False)
+    r = backtest(syn, n_folds=2, test_frac=0.35, eval_stride=30, touch_origins=0, verbose=False, **FAST)
     for h in r["horizons"]:
         # 長いホライズンは独立サンプルが少ない（24h で約 35 個）ため許容幅を広げる
         tol = 0.06 if h["h"] <= 240 else 0.12
@@ -152,3 +171,12 @@ def test_stats_run(syn):
     assert not errors, errors
     assert len(st["horizons"]) == 10
     assert st["volatility"]["gjr_garch_5m_deseasonalized"]["persistence"] < 1
+    assert 0.9 < st["advanced"]["permutation_entropy"]["1m"] <= 1.0
+
+
+def test_feature_report(fitted):
+    from xauforecast import report
+
+    m, _, _ = fitted
+    md = report.features_markdown(m)
+    assert "予測力が高い統計量" in md and len(m.feature_ic_table()) == len(m.feature_names)

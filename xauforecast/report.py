@@ -238,6 +238,48 @@ def stats_markdown(st: dict) -> str:
         for k, lab in (("1m", "1分"), ("1h", "1時間"), ("1d", "1日")):
             L.append(f"- {lab}: " + ", ".join(f"{r['time'][:16]} ({r['return_pct']:+.2f}%)" for r in ex.get(k, [])[:5]))
         L.append("")
+    ad = st.get("advanced", {})
+    if ad and "error" not in ad:
+        L += ["\n## 15. 高度な統計\n"]
+        j = ad.get("jumps", {})
+        L.append(f"- **ジャンプ**（BNS 検定、5分足）: 有意なジャンプを含む日 {pc(j.get('share_days_jump_p001'))}、分散に占めるジャンプの平均比率 {pc(j.get('mean_jump_share_of_variance'))}")
+        sv = ad.get("semivariance", {})
+        if sv:
+            L.append(f"- **セミ分散**: 下方の分散比率 {pc(sv.get('mean_downside_share'))}。翌日 log RV との相関 下方 {f3(sv.get('corr_downside_vs_next_logRV'))} / 上方 {f3(sv.get('corr_upside_vs_next_logRV'))}")
+        im = ad.get("intraday_momentum", {})
+        if im:
+            L.append(f"- **日中モメンタム**（前日終値→8:50 NY が 16:30-17:00 を予測するか）: 相関 {f3(im.get('corr'))}、t={f2(im.get('t'))}、n={im.get('n')}")
+        pe = ad.get("permutation_entropy", {})
+        L.append(f"- **順列エントロピー**（1 = 完全ランダム）: 1分 {f4(pe.get('1m'))} / 15分 {f4(pe.get('15m'))} / 1時間 {f4(pe.get('1h'))}")
+        dh = ad.get("dfa_hurst", {})
+        L.append(f"- **DFA Hurst**: リターン {f3(dh.get('returns_1m'))} / 絶対リターン {f3(dh.get('abs_returns_1m'))}（{dh.get('note', '')}）")
+        sp = ad.get("spectral_peaks_abs_return", [])
+        if sp:
+            L.append("- **ボラの周期**（|1分リターン| のスペクトルのピーク）: " + "、".join(f"{p_['period_min'] / 60:.1f}時間" for p_ in sp[:8]))
+        mk = ad.get("markov_1h_terciles")
+        if mk:
+            L += ["\n### 1時間足の遷移確率（三分位: 下落 / 横ばい / 上昇）\n",
+                  _table([{"from": lab, **{f"to{j_}": mk["transition"][i][j_] for j_ in range(3)}} for i, lab in enumerate(mk["labels"])],
+                         [("前の足", "from", s_)] + [(f"次:{lab}", f"to{j_}", pc) for j_, lab in enumerate(mk["labels"])]),
+                  f"\n独立性の χ² 検定 p値 = {f4(mk.get('p_value'))}（小さいほど前の足が次の足に影響。主にボラの持続性による）\n"]
+        vr = ad.get("vol_regimes")
+        if vr:
+            L.append(f"- **ボラ局面**（日次 log RV の 2 状態混合分布）: 低ボラ {f1(vr.get('low_vol_ann_pct'))}% / 高ボラ {f1(vr.get('high_vol_ann_pct'))}%、"
+                     f"高ボラの日の比率 {pc(vr.get('share_high'))}、継続確率 低 {pc(vr.get('p_stay_low'))} / 高 {pc(vr.get('p_stay_high'))}、"
+                     f"平均継続 低 {f1(vr.get('expected_days_low'))} 日 / 高 {f1(vr.get('expected_days_high'))} 日、現在: **{vr.get('current')}**")
+        ec = ad.get("extreme_clustering_1h")
+        if ec:
+            L.append(f"- **極端な変動の連鎖**（1時間足、±2σ 超）: 通常 {pc(ec.get('p_big'))} → 直前が大変動なら {pc(ec.get('p_big_after_big'))}。大変動の次の足が同じ方向 {pc(ec.get('p_same_direction_after_big'))}")
+        tf = ad.get("student_t_df", {})
+        L.append("- **裾の厚さ**（Student-t の自由度。小さいほど裾が厚い、正規分布は∞）: " + " / ".join(f"{k} {f1(v)}" for k, v in tf.items()))
+        pb = ad.get("prior_day_break", {})
+        L.append(f"- **前日高値・安値のブレイク**: 高値更新 {pc(pb.get('p_break_high'))} / 安値更新 {pc(pb.get('p_break_low'))} / 両方 {pc(pb.get('p_both'))} / はらみ足 {pc(pb.get('p_inside_day'))}")
+        hl = ad.get("high_low_timing_ny_hour", {})
+        if hl:
+            hours = sorted({int(k) for k in list(hl.get("high", {})) + list(hl.get("low", {}))})
+            L += ["\n### 日中の高値・安値がつく時間帯（NY 時間）\n",
+                  _table([{"h": h, "hi": hl["high"].get(str(h), hl["high"].get(h)), "lo": hl["low"].get(str(h), hl["low"].get(h))} for h in hours],
+                         [("NY時", "h", s_), ("高値がつく割合", "hi", pc), ("安値がつく割合", "lo", pc)])]
     errs = [k for k, v in st.items() if isinstance(v, dict) and "error" in v]
     if errs:
         L.append("\n> 計算できなかった項目: " + ", ".join(f"{k} ({st[k]['error']})" for k in errs))
@@ -262,8 +304,43 @@ def forecast_text(fc: dict) -> str:
         L.append(f"{t['pct']:5.2f} {t['usd']:7.2f} " + " ".join(
             f"{t.get(k, float('nan')) * 100:5.1f}%" for k in ("p_up_60", "p_down_60", "p_up_240", "p_down_240", "p_up_1440", "p_down_1440"))
                  + f" {t['p_up_first'] * 100 if t['p_up_first'] == t['p_up_first'] else float('nan'):5.1f}%")
+    L += explain_text(fc)
     L += ["", "注: 金価格の方向は統計的にほぼ予測不能です。ここに示すのは確率分布であり、確定的な予想ではありません。"]
     return "\n".join(L)
+
+
+COMP_JA = {"ridge": "線形", "gbm": "GBM", "analog": "類似局面", "season": "時間帯統計"}
+
+
+def explain_text(fc: dict) -> list[str]:
+    from .features import feature_label
+
+    ex = fc.get("explain")
+    if not ex:
+        return []
+    L = ["", f"予測の根拠（使用した特徴量 {fc.get('n_features', '?')} 個）:",
+         f"{'先':>6} {'HARのσ($)':>10} {'補正後σ($)':>10} {'補正倍率':>8} {'ボラ局面':>6}  方向: 予測器の寄与($)"]
+    for h in fc["horizons"]:
+        comp = h.get("components_usd", {})
+        cs = " ".join(f"{COMP_JA[c]}{v:+.3f}" for c, v in comp.items() if v) or "なし（ドリフト0）"
+        L.append(f"{h['label']:>6} {h.get('sigma_har_usd', 0):10.2f} {h['sigma_usd']:10.2f} {h.get('vol_adjust_factor', 1):8.2f} "
+                 f"{h.get('vol_regime_bucket', ''):>6}  {cs}")
+    fsr = ex.get("feature_stats", [])
+    if fsr:
+        hs = sorted({int(k[3:]) for k in fsr[0] if k.startswith("ic_")})
+        L += ["", "現在の統計量（予測力の高い順、IC=将来リターンとの順位相関・学習期間）:",
+              f"{'特徴量':<30} {'現在の分位':>8} " + " ".join(f"{'IC'+str(h)+'分':>9} {'t':>6}" for h in hs)]
+        for r in fsr[:12]:
+            L.append(f"{feature_label(r['feature'])[:28]:<30} {r['percentile'] * 100:7.0f}% " +
+                     " ".join(f"{r.get(f'ic_{h}', 0):+9.4f} {r.get(f't_{h}', 0):+6.1f}" for h in hs))
+    an = ex.get("analogs", {})
+    if an.get("by_horizon"):
+        L += ["", f"類似局面（過去で最も似た {an['k']} 局面のその後）:",
+              f"{'先':>6} {'上昇率':>7} {'中央値($)':>10} {'10%($)':>9} {'90%($)':>9}"]
+        for r in an["by_horizon"]:
+            L.append(f"{r['label']:>6} {r['p_up'] * 100:6.1f}% {r['median_usd']:+10.2f} {r['q10_usd']:+9.2f} {r['q90_usd']:+9.2f}")
+        L.append("最も似た局面: " + ", ".join(f"{r['time_utc']}(24h後 {r.get('ret_1440_pct') or 0:+.2f}%)" for r in an.get("nearest", [])[:5]))
+    return L
 
 
 def forecast_html(fc: dict, backtest: dict | None = None) -> str:
@@ -329,9 +406,76 @@ td.n{{text-align:right;font-variant-numeric:tabular-nums}}.note{{color:var(--mut
 <h2>ホライズン別予測</h2><div class=tw><table><thead><tr><th>先</th><th>対象時刻(UTC)</th><th>中央値</th><th>σ</th><th>90%区間</th><th>50%区間</th><th>上昇確率</th><th>予想高値</th><th>予想安値</th><th>取引分</th><th>方向モデル</th></tr></thead><tbody>{rows}</tbody></table></div>
 <h2>価格到達確率</h2><p class=sub>現在値から ±x% の価格に、期間内に一度でも到達する確率（高値・安値ベース）。「上が先」は上下どちらかに到達した場合に上が先である確率。</p>
 <div class=tw><table><thead><tr><th>幅</th><th>$</th><th>1h ↑</th><th>1h ↓</th><th>4h ↑</th><th>4h ↓</th><th>24h ↑</th><th>24h ↓</th><th>上が先</th></tr></thead><tbody>{trows}</tbody></table></div>
+{explain_html(fc)}
 {bt}
 <p class=note>価格の方向は統計的にほぼランダムで、確実な予測はできません。このページは「どのくらい動きうるか」の確率分布を示すもので、投資判断の保証ではありません。方向モデルは過去検証で有意な予測力が確認されたホライズンでのみ有効化され、それ以外はドリフト 0 として扱います。</p>
 </main></body></html>'''
+
+
+def explain_html(fc: dict) -> str:
+    from .features import feature_label
+
+    ex = fc.get("explain")
+    if not ex:
+        return ""
+    e = html.escape
+    rows = "".join(
+        f"<tr><td>{h['label']}</td><td class=n>±{h.get('sigma_har_usd', 0):,.2f}</td><td class=n>±{h['sigma_usd']:,.2f}</td>"
+        f"<td class=n>{h.get('vol_adjust_factor', 1):.2f}倍</td><td>{e(h.get('vol_regime_bucket', ''))}</td>"
+        + "".join(f"<td class=n>{h.get('components_usd', {}).get(c, 0):+.3f}</td>" for c in COMP_JA) + "</tr>"
+        for h in fc["horizons"])
+    fsr = ex.get("feature_stats", [])
+    hs = sorted({int(k[3:]) for k in fsr[0] if k.startswith("ic_")}) if fsr else []
+    frows = "".join(
+        f"<tr><td>{e(feature_label(r['feature']))}</td><td>{e(r['group'])}</td><td class=n>{r['percentile'] * 100:.0f}%</td>"
+        + "".join(f"<td class=n>{r.get(f'ic_{h}', 0):+.4f}</td><td class=n>{r.get(f't_{h}', 0):+.1f}</td>" for h in hs) + "</tr>"
+        for r in fsr[:15])
+    fhead = "".join(f"<th>IC {h}分</th><th>t</th>" for h in hs)
+    an = ex.get("analogs", {})
+    arows = "".join(f"<tr><td>{r['label']}</td><td class=n>{r['p_up'] * 100:.1f}%</td><td class=n>{r['median_usd']:+,.2f}</td>"
+                    f"<td class=n>{r['q10_usd']:+,.2f} – {r['q90_usd']:+,.2f}</td></tr>" for r in an.get("by_horizon", []))
+    near = "、".join(f"{e(r['time_utc'])}（24h後 {r.get('ret_1440_pct') or 0:+.2f}%）" for r in an.get("nearest", [])[:6])
+    return f'''<h2>予測の根拠</h2><p class=sub>特徴量 {fc.get('n_features', '?')} 個を使用。ボラは HAR 回帰の予測を全特徴量の勾配ブースティングで補正（検証で改善したホライズンのみ）。方向は 4 つの予測器のうち、検証で有意だったものだけを重み付けして合成（寄与は $ 換算）。</p>
+<div class=tw><table><thead><tr><th>先</th><th>HAR の σ</th><th>補正後 σ</th><th>補正倍率</th><th>ボラ局面</th><th>線形</th><th>GBM</th><th>類似局面</th><th>時間帯統計</th></tr></thead><tbody>{rows}</tbody></table></div>
+<h2>現在の統計量</h2><p class=sub>将来リターンとの順位相関（IC）が大きい特徴量の順。「現在の分位」は学習期間の分布の中での現在値の位置。</p>
+<div class=tw><table><thead><tr><th>統計量</th><th>分類</th><th>現在の分位</th>{fhead}</tr></thead><tbody>{frows}</tbody></table></div>
+<h2>類似局面</h2><p class=sub>主要な統計量が現在と最も似ている過去 {an.get('k', 0)} 局面の、その後の値動き（現在価格に換算）。最も似た局面: {near}</p>
+<div class=tw><table><thead><tr><th>先</th><th>上昇した割合</th><th>中央値 $</th><th>10–90% $</th></tr></thead><tbody>{arows}</tbody></table></div>'''
+
+
+def features_markdown(m) -> str:
+    """全特徴量の予測力と、モデル各部の採否のレポート。"""
+    from .features import feature_label
+    from .model import COMPONENTS
+
+    t = m.feature_ic_table()
+    L = [f"# 特徴量（統計量）の予測力とモデル構成\n", f"- 学習データ末尾: {m.fit_end}",
+         f"- 特徴量: {len(m.feature_names)} 個（" + "、".join(f"{g} {n}" for g, n in t['group'].value_counts().items()) + "）\n",
+         "## ホライズン別のモデル構成\n",
+         "ボラ補正 = 勾配ブースティングによる HAR 残差の補正で、交差適合の log 実現分散の二乗誤差が何 % 減ったか。"
+         "方向の t 値は各予測器の交差適合での予測力（ゲート閾値を超えたものだけ採用）。\n"]
+    rows = []
+    for h, hm in sorted(m.models.items()):
+        r = {"label": f"{h}分" if h < 60 else f"{h // 60}時間", "vg": hm.vol_gain_pct, "vu": "採用" if hm.vol_gbm is not None else "-",
+             "act": "採用" if hm.active else "ドリフト0", "t": hm.t_val}
+        for c in COMPONENTS:
+            r[f"t_{c}"] = hm.comp_stats[c]["t"]
+            r[f"w_{c}"] = hm.comp_weights[c]
+        rows.append(r)
+    L.append(_table(rows, [("先", "label", s_), ("ボラ補正(%)", "vg", f1), ("ボラ補正", "vu", s_)] +
+                    [(f"t {COMP_JA[c]}", f"t_{c}", f1) for c in COMPONENTS] +
+                    [(f"重み {COMP_JA[c]}", f"w_{c}", f3) for c in COMPONENTS] + [("方向", "act", s_), ("合成 t", "t", f1)]))
+    L.append("\n## 分類別の平均 |t|（将来リターンとの順位相関）\n")
+    hs = [h for h in sorted(m.models)]
+    g = t.groupby("group")[[f"t_{h}" for h in hs]].apply(lambda x: x.abs().mean()).reset_index()
+    L.append(_table(g.to_dict("records"), [("分類", "group", s_)] + [(f"{h}分" if h < 60 else f"{h // 60}時間", f"t_{h}", f1) for h in hs]))
+    for h in [x for x in (1, 15, 60, 240, 1440) if x in m.models]:
+        top = t.reindex(t[f"t_{h}"].abs().sort_values(ascending=False).index).head(15)
+        L.append(f"\n## {h}分先 の予測力が高い統計量 上位15\n" if h < 60 else f"\n## {h // 60}時間先 の予測力が高い統計量 上位15\n")
+        L.append(_table([dict(r, label=feature_label(r["feature"])) for r in top.to_dict("records")],
+                        [("統計量", "label", s_), ("名前", "feature", s_), ("分類", "group", s_), ("IC", f"ic_{h}", f4), ("t", f"t_{h}", f1)]))
+    L.append("\n|t| が 3 未満は偶然の範囲と考えてください（特徴量が多いため多重比較に注意）。全表は feature_ic.csv にあります。\n")
+    return "\n".join(L) + "\n"
 
 
 def _hz(fc, h, q):
@@ -358,6 +502,11 @@ def backtest_markdown(bt: dict) -> str:
          _table(bt["horizons"], [("先", "label", s_), ("ボラ改善", "qlike_skill_pct", f1), ("log分散相関", "vol_corr", f3),
                                  ("分位点改善", "pinball_skill_pct", f2), ("方向Brier改善", "brier_skill_pct", f3),
                                  ("方向IC", "ic", f4), ("方向モデル有効率", "mean_model_active_share", pc), ("有効時の的中率", "hit_rate_when_active", pc)])]
+    if bt["horizons"] and "qlike_skill_har_only_pct" in bt["horizons"][0]:
+        L += ["\n## 構成要素の寄与（検証期間）\n",
+              "ボラ: HAR 単独と、全特徴量 GBM 補正後の QLIKE 改善率。方向: 各予測器の生の予測値と実際のリターンの相関（採用されていない予測器も計算）。\n",
+              _table(bt["horizons"], [("先", "label", s_), ("ボラ HAR単独", "qlike_skill_har_only_pct", f1), ("ボラ 補正後", "qlike_skill_pct", f1)] +
+                     [(f"IC {v}", f"ic_{k}", f4) for k, v in COMP_JA.items()])]
     if bt.get("touch_calibration"):
         L += ["\n## 価格到達確率の較正（予測平均 vs 実際の頻度）\n",
               _table(bt["touch_calibration"], [("期間(分)", "h", s_), ("±%", "pct", f2), ("予測", "pred", pc), ("実際", "actual", pc), ("n", "n", s_)]),

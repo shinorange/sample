@@ -824,6 +824,185 @@ def current_state(grid: Grid, daily: pd.DataFrame, f: np.ndarray) -> dict:
     return out
 
 
+
+# ---------------------------------------------------------------------------
+# 高度な統計
+# ---------------------------------------------------------------------------
+def _perm_entropy(x: np.ndarray, order: int = 4) -> float:
+    """順列エントロピー（1 = 完全にランダム、小さいほどパターンあり）。"""
+    from math import factorial
+
+    x = x[np.isfinite(x)]
+    if len(x) < order * 50:
+        return float("nan")
+    w = np.lib.stride_tricks.sliding_window_view(x, order)
+    pat = np.argsort(w, axis=1)
+    key = (pat * (order ** np.arange(order))).sum(1)
+    _, c = np.unique(key, return_counts=True)
+    p = c / c.sum()
+    return float(-(p * np.log(p)).sum() / np.log(factorial(order)))
+
+
+def _dfa(x: np.ndarray, scales=(10, 20, 50, 100, 200, 500, 1000, 2000, 5000)) -> float:
+    """トレンド除去変動解析（DFA）による Hurst 指数。"""
+    y = np.cumsum(x - x.mean())
+    F, S = [], []
+    for s in scales:
+        n = len(y) // s
+        if n < 8:
+            continue
+        seg = y[: n * s].reshape(n, s)
+        t = np.arange(s)
+        coef = np.polyfit(t, seg.T, 1)
+        trend = np.outer(coef[0], t) + coef[1][:, None]
+        F.append(np.sqrt(np.mean((seg - trend) ** 2)))
+        S.append(s)
+    if len(S) < 3:
+        return float("nan")
+    return float(np.polyfit(np.log(S), np.log(F), 1)[0])
+
+
+def advanced(grid: Grid, daily: pd.DataFrame) -> dict:
+    from scipy.special import gamma
+
+    out: dict[str, Any] = {}
+    df = grid.df
+    ny = df.index.tz_convert(NY)
+    td = (ny + pd.Timedelta(hours=7)).normalize().tz_localize(None)
+    lc = np.log(df["close"].to_numpy())
+    r = np.r_[0.0, np.diff(lc)]
+    gap = np.r_[True, np.diff(df.index.asi8) > 60 * 10**9]
+    r[gap] = 0.0  # 休場明けのギャップは除外
+    rs = pd.Series(r, index=df.index)
+
+    # 1) ジャンプ検定（BNS、日次、ノイズを避けるため 5 分リターン）
+    mu1 = np.sqrt(2 / np.pi)
+    mu43 = 2 ** (2 / 3) * gamma(7 / 6) / gamma(0.5)
+    b5 = rs.groupby([td, df.index.floor("5min")]).sum()
+    r5 = b5.to_numpy()
+    td5 = b5.index.get_level_values(0)
+    a = np.abs(r5)
+    bp = a * np.r_[0.0, a[:-1]]
+    tp = (a * np.r_[0.0, a[:-1]] * np.r_[0.0, 0.0, a[:-2]]) ** (4 / 3)
+    g = pd.DataFrame({"rv": r5 ** 2, "bp": bp, "tp": tp, "n": 1.0, "neg": r5 ** 2 * (r5 < 0)}).groupby(td5).sum()
+    g = g[g["n"] >= 60]
+    bv = g["bp"] / mu1 ** 2
+    tq = g["n"] * g["tp"] / mu43 ** 3
+    rel = (g["rv"] - bv) / g["rv"]
+    z = rel / np.sqrt((np.pi ** 2 / 4 + np.pi - 5) * np.maximum(1, tq / bv ** 2) / g["n"])
+    out["jumps"] = {"days": int(len(g)), "share_days_jump_p001": float((z > 3.09).mean()),
+                    "mean_jump_share_of_variance": float(np.clip(rel, 0, 1).mean()),
+                    "note": "BNS 検定で有意(p<0.001)なジャンプを含む日の割合と、分散に占めるジャンプの平均比率"}
+
+    # 2) 実現セミ分散: 下方/上方のどちらが翌日のボラを予測するか
+    gp = g.assign(pos=g["rv"] - g["neg"])
+    nxt = np.log(gp["rv"]).shift(-1)
+    d = pd.DataFrame({"neg": np.log(gp["neg"] + 1e-12), "pos": np.log(gp["pos"] + 1e-12), "nxt": nxt}).dropna()
+    if len(d) > 30:
+        out["semivariance"] = {"mean_downside_share": float((gp["neg"] / gp["rv"]).mean()),
+                               "corr_downside_vs_next_logRV": float(d["neg"].corr(d["nxt"])),
+                               "corr_upside_vs_next_logRV": float(d["pos"].corr(d["nxt"]))}
+
+    # 3) 日中モメンタム（前日 17:00 〜 当日 8:50 NY のリターン → 16:30〜17:00 のリターン）
+    mod = ny.hour * 60 + ny.minute
+    close_s = df["close"]
+    def at(m):
+        s = close_s[(mod <= m)].groupby(td[(mod <= m)]).last()
+        return s
+    first = np.log(at(530)) - np.log(daily["close"].shift(1).reindex(at(530).index))
+    lastr = np.log(at(1019)) - np.log(at(990).reindex(at(1019).index))
+    dm = pd.DataFrame({"x": first, "y": lastr}).dropna()
+    if len(dm) > 30:
+        b = np.polyfit(dm["x"], dm["y"], 1)[0]
+        c = dm["x"].corr(dm["y"])
+        out["intraday_momentum"] = {"n": int(len(dm)), "corr": float(c), "t": float(c * np.sqrt(len(dm))), "slope": float(b),
+                                    "note": "前日終値→当日 8:50 NY の動きが、引け前 30 分（16:30-17:00）の方向を予測するか"}
+
+    # 4) 順列エントロピー・DFA・スペクトル
+    out["permutation_entropy"] = {k: _perm_entropy(v) for k, v in (
+        ("1m", r[-300_000:]), ("15m", np.diff(np.log(resample_bars(grid, "15min")["close"].to_numpy()))),
+        ("1h", np.diff(np.log(resample_bars(grid, "1h")["close"].to_numpy()))))}
+    out["dfa_hurst"] = {"returns_1m": _dfa(r[-300_000:]), "abs_returns_1m": _dfa(np.abs(r[-300_000:])),
+                        "note": "リターンの H≈0.5 はランダム。|リターン| の H>0.5 はボラの長期記憶"}
+    x = np.abs(grid.r[-2 ** 19:])
+    x = x - x.mean()
+    spec = np.abs(np.fft.rfft(x)) ** 2
+    freq = np.fft.rfftfreq(len(x), d=1.0)
+    m = (freq > 1 / 20000) & (freq < 1 / 4)
+    pk = np.argsort(spec[m])[::-1]
+    periods, used = [], []
+    for i in pk:
+        per = 1 / freq[m][i]
+        if all(abs(per - u) / u > 0.05 for u in used):
+            used.append(per)
+            periods.append({"period_min": float(per), "power_rel": float(spec[m][i] / spec[m].mean())})
+        if len(periods) >= 8:
+            break
+    out["spectral_peaks_abs_return"] = periods
+
+    # 5) マルコフ連鎖: 1 時間足リターン三分位の遷移確率
+    hr = np.diff(np.log(resample_bars(grid, "1h")["close"].to_numpy()))
+    if len(hr) > 300:
+        q = np.searchsorted(np.quantile(hr, [1 / 3, 2 / 3]), hr)
+        T = np.zeros((3, 3))
+        for i, j in zip(q[:-1], q[1:]):
+            T[i, j] += 1
+        chi2, p, *_ = sps.chi2_contingency(T)
+        out["markov_1h_terciles"] = {"labels": ["下落", "横ばい", "上昇"],
+                                     "transition": (T / T.sum(1, keepdims=True)).round(4).tolist(),
+                                     "chi2": float(chi2), "p_value": float(p)}
+
+    # 6) ボラ局面（日次 log RV の 2 状態混合分布）
+    lrv = np.log(g["rv"].to_numpy())
+    if len(lrv) > 60:
+        from sklearn.mixture import GaussianMixture
+
+        gm = GaussianMixture(2, random_state=0).fit(lrv[:, None])
+        lab = gm.predict(lrv[:, None])
+        hi = int(np.argmax(gm.means_.ravel()))
+        lab = (lab == hi).astype(int)
+        stay = [float(np.mean(lab[1:][lab[:-1] == k] == k)) if (lab[:-1] == k).any() else None for k in (0, 1)]
+        out["vol_regimes"] = {
+            "low_vol_ann_pct": float(np.sqrt(np.exp(gm.means_.ravel()[1 - hi]) * 252) * 100),
+            "high_vol_ann_pct": float(np.sqrt(np.exp(gm.means_.ravel()[hi]) * 252) * 100),
+            "share_high": float(lab.mean()), "p_stay_low": stay[0], "p_stay_high": stay[1],
+            "expected_days_low": 1 / (1 - stay[0]) if stay[0] and stay[0] < 1 else None,
+            "expected_days_high": 1 / (1 - stay[1]) if stay[1] and stay[1] < 1 else None,
+            "current": "高ボラ" if lab[-1] else "低ボラ"}
+
+    # 7) 極端な変動の連鎖（1 時間足）
+    if len(hr) > 300:
+        sd = pd.Series(hr).rolling(500, min_periods=100).std().shift(1).to_numpy()
+        zz = hr / sd
+        ok = np.isfinite(zz)
+        big = np.abs(zz) > 2
+        nb = big[1:][ok[:-1] & big[:-1]]
+        same = (np.sign(zz[1:]) == np.sign(zz[:-1]))[ok[:-1] & big[:-1]]
+        out["extreme_clustering_1h"] = {"p_big": float(big[ok].mean()), "p_big_after_big": float(nb.mean()) if len(nb) else None,
+                                        "p_same_direction_after_big": float(same.mean()) if len(same) else None}
+
+    # 8) 裾の厚さ: Student-t の自由度（ホライズン別）
+    tfit = {}
+    for k, v in (("1m", r[r != 0][-200_000:]), ("1h", hr), ("1d", np.diff(np.log(daily["close"].to_numpy())))):
+        if len(v) > 200:
+            dfit, _, _ = sps.t.fit(v / v.std())
+            tfit[k] = float(dfit)
+    out["student_t_df"] = tfit
+
+    # 9) 日中高値・安値がつく時間帯（NY 時間）と、前日高値/安値のブレイク確率
+    hh = df["high"].groupby(td).idxmax()
+    ll = df["low"].groupby(td).idxmin()
+    hh = hh[hh.index.isin(daily.index)]
+    ll = ll[ll.index.isin(daily.index)]
+    out["high_low_timing_ny_hour"] = {
+        "high": pd.Series(pd.DatetimeIndex(hh.to_numpy()).tz_convert(NY).hour).value_counts(normalize=True).sort_index().round(4).to_dict(),
+        "low": pd.Series(pd.DatetimeIndex(ll.to_numpy()).tz_convert(NY).hour).value_counts(normalize=True).sort_index().round(4).to_dict()}
+    ph, pl = daily["high"].shift(1), daily["low"].shift(1)
+    br = pd.DataFrame({"up": daily["high"] > ph, "dn": daily["low"] < pl}).iloc[1:]
+    out["prior_day_break"] = {"p_break_high": float(br["up"].mean()), "p_break_low": float(br["dn"].mean()),
+                              "p_both": float((br["up"] & br["dn"]).mean()), "p_inside_day": float((~br["up"] & ~br["dn"]).mean())}
+    return out
+
 # ---------------------------------------------------------------------------
 def collect_stats(df: pd.DataFrame, events: pd.DataFrame | None = None, verbose: bool = True) -> dict:
     grid = Grid(df)
@@ -849,6 +1028,7 @@ def collect_stats(df: pd.DataFrame, events: pd.DataFrame | None = None, verbose:
         ("trend", lambda: trend(grid, daily)),
         ("extremes", lambda: extremes(grid, daily)),
         ("current", lambda: current_state(grid, daily, f)),
+        ("advanced", lambda: advanced(grid, daily)),
     ]
     out: dict[str, Any] = {}
     for name, fn in steps:

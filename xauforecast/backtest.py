@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .core import WARMUP, Grid, horizon_label
-from .model import QLEVELS, TOUCH_PCTS, Forecaster
+from .model import COMPONENTS, QLEVELS, TOUCH_PCTS, Forecaster
 
 INTERVALS = {50: (0.25, 0.75), 80: (0.1, 0.9), 90: (0.05, 0.95), 95: (0.025, 0.975), 98: (0.01, 0.99)}
 
@@ -40,28 +40,41 @@ def backtest(df: pd.DataFrame, n_folds: int = 4, test_frac: float = 0.4, eval_st
         fs = model.fit(grid, end=a)
         test = np.where(grid.is_open[a:b])[0] + a
         test = test[::eval_stride]
+        allpred = model.predict_batch(fs, test)
+        keys = ("y", "q", "nq", "sigma", "sigma_har", "rv", "mu", "pup", "pdn", "pit", "nvar", "active") + \
+            tuple(f"c_{c}" for c in COMPONENTS)
         for h, m in model.models.items():
-            p = test[test + h < grid.n]
+            sel = (test + h < grid.n)
+            pr = {kk: (vv[sel] if isinstance(vv, np.ndarray) else vv) for kk, vv in allpred[h].items()}
+            pr["comps"] = {c: v[sel] for c, v in allpred[h]["comps"].items()}
+            ok = pr["Ff"] > 0.05 * h
+            p = test[sel][ok]
             if len(p) == 0:
                 continue
-            pr = model.predict_batch(fs, p)[h]
-            ok = pr["Ff"] > 0.05 * h
-            p = p[ok]
             y = grid.logp[p + h] - grid.logp[p]
             rv = grid.Cr2[p + h + 1] - grid.Cr2[p + 1]
-            d = rec.setdefault(h, {k2: [] for k2 in ("y", "q", "nq", "sigma", "rv", "mu", "pup", "pdn", "pit", "nvar", "active")})
+            d = rec.setdefault(h, {k2: [] for k2 in keys})
             d["y"].append(y)
             d["q"].append(pr["q"][ok])
             d["nq"].append(np.repeat(m.naive_q[None, :], len(p), 0))
             d["sigma"].append(pr["sigma"][ok])
+            d["sigma_har"].append(pr["sigma_har"][ok])
             d["rv"].append(rv)
             d["mu"].append(pr["mu"][ok])
             d["pup"].append(pr["p_up"][ok])
             d["pdn"].append(pr["p_down"][ok])
             zobs = (y / np.maximum(pr["sigma"][ok], 1e-12)) - pr["mu_z"][ok]
-            d["pit"].append(np.searchsorted(m.z_sorted, zobs) / len(m.z_sorted))
+            bk = pr["bucket"][ok]
+            pit = np.empty(len(p))
+            for bi in range(3):
+                zs = model.z_pool(h, bi)
+                pit[bk == bi] = np.searchsorted(zs, zobs[bk == bi]) / len(zs)
+            d["pit"].append(pit)
             d["nvar"].append(np.full(len(p), m.naive_var))
             d["active"].append(np.full(len(p), m.active))
+            # 各予測器の生の予測値（採用されていなくても計算して検証期間の予測力を測る）
+            for c in COMPONENTS:
+                d[f"c_{c}"].append(pr["comps"][c][ok])
 
         # 到達確率の較正（MC はコストが高いのでサブサンプル）
         if touch_origins > 0:
@@ -72,7 +85,7 @@ def backtest(df: pd.DataFrame, n_folds: int = 4, test_frac: float = 0.4, eval_st
                 sel = rng.choice(cand, size=min(touch_origins // n_folds + 1, len(cand)), replace=False)
                 preds = model.predict_batch(fs, sel)
                 for i, p in enumerate(sel):
-                    one = {h: {kk: vv[i:i + 1] for kk, vv in preds[h].items()} for h in preds}
+                    one = {h: {kk: vv[i:i + 1] for kk, vv in preds[h].items() if isinstance(vv, np.ndarray)} for h in preds}
                     _, ph, pl = model.simulate(fs, int(p), one, n_paths=touch_paths, H=H, seed=int(p))
                     p0 = grid.close[p]
                     pmax = p0 * np.exp(np.maximum.accumulate(ph, axis=1))
@@ -105,6 +118,8 @@ def backtest(df: pd.DataFrame, n_folds: int = 4, test_frac: float = 0.4, eval_st
         ql = lambda rv, v: np.mean(rv / v - np.log(rv / v) - 1)
         row["qlike_skill_pct"] = float((1 - ql(d["rv"][good], s2[good]) / ql(d["rv"][good], d["nvar"][good])) * 100)
         row["vol_corr"] = float(np.corrcoef(np.log(d["rv"][good]), np.log(s2[good]))[0, 1])
+        sh2 = d["sigma_har"][good] ** 2
+        row["qlike_skill_har_only_pct"] = float((1 - ql(d["rv"][good], sh2) / ql(d["rv"][good], d["nvar"][good])) * 100)
         nz = y != 0
         pu = d["pup"][nz] / np.maximum(d["pup"][nz] + d["pdn"][nz], 1e-9)
         out = (y[nz] > 0).astype(float)
@@ -113,6 +128,9 @@ def backtest(df: pd.DataFrame, n_folds: int = 4, test_frac: float = 0.4, eval_st
         row["mean_model_active_share"] = float(np.mean(d["active"]))
         row["hit_rate_when_active"] = float(np.mean(np.sign(d["mu"][nz][act]) == np.sign(y[nz][act]))) if act.any() else None
         row["ic"] = float(np.corrcoef(d["mu"][nz], y[nz])[0, 1]) if np.std(d["mu"][nz]) > 0 else None
+        for c in COMPONENTS:
+            cc = d[f"c_{c}"][nz]
+            row[f"ic_{c}"] = float(np.corrcoef(cc, y[nz])[0, 1]) if np.std(cc) > 0 else None
         res["horizons"].append(row)
 
     if touch_rec:

@@ -82,19 +82,34 @@ def cmd_stats(args):
     print(f"保存: {out / 'stats.json'}, {out / 'stats.md'}")
 
 
-def _fit(df: pd.DataFrame, model_path: str) -> tuple[Forecaster, Grid]:
+def _events(args):
+    path = getattr(args, "events", None)
+    if not path:
+        return None
+    from .stats import load_events
+
+    return pd.DatetimeIndex(load_events(path)["time"])
+
+
+def _fit(df: pd.DataFrame, model_path: str, args=None) -> tuple[Forecaster, Grid]:
     grid = Grid(df)
     m = Forecaster()
-    print("モデル学習中…", flush=True)
-    m.fit(grid, verbose=True)
+    print("モデル学習中…（全特徴量 × 10 ホライズン、数分かかります）", flush=True)
+    m.fit(grid, verbose=True, events=_events(args) if args is not None else None)
     m.save(model_path)
     print(f"モデル保存: {model_path}")
+    if args is not None and getattr(args, "out", None):
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "features.md").write_text(report.features_markdown(m), encoding="utf-8")
+        m.feature_ic_table().to_csv(out / "feature_ic.csv", index=False)
+        print(f"保存: {out / 'features.md'}, {out / 'feature_ic.csv'}")
     return m, grid
 
 
 def cmd_fit(args):
     df = _load(args.data, args.tz, args.max_days)
-    _fit(df, args.model)
+    _fit(df, args.model, args)
 
 
 def _get_model(args, df: pd.DataFrame, grid: Grid | None = None) -> tuple[Forecaster, Grid]:
@@ -105,13 +120,11 @@ def _get_model(args, df: pd.DataFrame, grid: Grid | None = None) -> tuple[Foreca
         if age_h <= args.refit_hours:
             return m, grid or Grid(df)
         print(f"モデルが古いため再学習します（学習末尾から {age_h:.1f} 時間経過）")
-    return _fit(df, args.model)
+    return _fit(df, args.model, args)
 
 
 def _do_forecast(args, df: pd.DataFrame, m: Forecaster, grid: Grid, bt: dict | None = None) -> dict:
-    from .core import FeatureSet
-
-    fs = FeatureSet(grid, m.profile)
+    fs = m.make_features(grid)
     pos = grid.pos_of(args.at) if getattr(args, "at", None) else grid.n - 1
     fc = m.forecast(grid, fs, pos=pos, n_paths=args.paths)
     out = Path(args.out)
@@ -132,7 +145,7 @@ def _model_for(args, df: pd.DataFrame) -> tuple[Forecaster, Grid]:
             grid = Grid(df)
             m = Forecaster()
             print(f"--at {at} までのデータのみで学習します（先読み防止）", flush=True)
-            m.fit(grid, end=grid.pos_of(at) + 1, verbose=False)
+            m.fit(grid, end=grid.pos_of(at) + 1, verbose=True, events=_events(args))
             return m, grid
     return _get_model(args, df)
 
@@ -193,7 +206,7 @@ def cmd_all(args):
     cmd_stats(args)
     cmd_backtest(args_bt)
     df = _load(args.data, args.tz, args.max_days)
-    m, grid = _model_for(args, df) if args.at else _fit(df, args.model)
+    m, grid = _model_for(args, df) if args.at else _fit(df, args.model, args)
     import json
 
     bt = json.loads((Path(args.out) / "backtest.json").read_text(encoding="utf-8"))
@@ -225,6 +238,7 @@ def main(argv=None):
         p.add_argument("--refit-hours", type=float, default=24.0, help="学習末尾からこの時間を超えたら再学習")
         p.add_argument("--refit", action="store_true", help="必ず再学習する")
         p.add_argument("--paths", type=int, default=3000, help="モンテカルロのパス数")
+        p.add_argument("--events", default=None, help="経済指標カレンダー CSV（time,name[,tz]）。特徴量・統計に使用")
 
     p = sub.add_parser("fetch", help="データ取得")
     src(p)
@@ -273,7 +287,6 @@ def main(argv=None):
     p = sub.add_parser("all", help="stats + backtest + fit + forecast")
     common(p)
     model(p)
-    p.add_argument("--events", default=None)
     p.add_argument("--folds", type=int, default=4)
     p.add_argument("--test-frac", type=float, default=0.4)
     p.add_argument("--touch-origins", type=int, default=200)

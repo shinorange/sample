@@ -104,77 +104,45 @@ def estimate_profile(grid: Grid, end: int | None = None, K: float = 30.0, cap: f
 # ---------------------------------------------------------------------------
 # 特徴量
 # ---------------------------------------------------------------------------
-FEATURES = [
-    "nr_1", "nr_5", "nr_15", "nr_60", "nr_240", "nr_1440",
-    "ema_60", "ema_240", "ema_1440", "rsi_14", "rsi_210",
-    "vr_short", "vr_long", "daypos", "tod_sin", "tod_cos", "round50",
-]
-
-
 class FeatureSet:
-    """グリッド全体の特徴量（過去データのみ使用）を計算して保持する。"""
+    """グリッド全体の特徴量（過去データのみ使用）を計算して保持する。
 
-    def __init__(self, grid: Grid, f: np.ndarray, end: int | None = None):
+    end / vprofile / r2_scale は学習時の値を渡す（予測時も学習時と同じ尺度で計算するため）。
+    """
+
+    def __init__(self, grid: Grid, f: np.ndarray, end: int | None = None, events=None,
+                 vprofile: np.ndarray | None = None, r2_scale: float | None = None):
+        from .features import compute_features, volume_profile
+
         self.grid = grid
         self.f = f
         fs = f[grid.slot]
         self.Cf = np.concatenate([[0.0], np.cumsum(fs)])
         end = grid.n if end is None else end
-        self.r2_scale = float(np.mean(grid.r[:end][grid.is_open[:end]] ** 2)) + 1e-18
+        self.r2_scale = r2_scale or (float(np.mean(grid.r[:end][grid.is_open[:end]] ** 2)) + 1e-18)
         self.eps = 1e-3 * self.r2_scale
+        self.vprofile = volume_profile(grid, end) if vprofile is None else vprofile
         pos = np.arange(grid.n)
         self.L = {}
         for w in HAR_WINDOWS:
             num = grid.window_sum(grid.Cr2, pos, w)
             den = grid.window_sum(self.Cf, pos, w)
             self.L[w] = num / (den + 0.02 * w)
-        self.X = self._features()
+        self.X, self.groups = compute_features(grid, f, self.Cf, self.L, self.eps, self.vprofile, events)
+        self.names = list(self.X)
 
-    def _features(self) -> dict[str, np.ndarray]:
-        g = self.grid
-        pos = np.arange(g.n)
-        L = np.maximum(self.L[1440], self.eps)
-        out: dict[str, np.ndarray] = {}
-        Cr = np.concatenate([[0.0], np.cumsum(g.r)])
-        for w in (1, 5, 15, 60, 240, 1440):
-            ret = g.window_sum(Cr, pos, w)
-            fw = g.window_sum(self.Cf, pos, w)
-            out[f"nr_{w}"] = ret / np.sqrt(L * (fw + 0.02 * w))
-        lp = pd.Series(g.logp)
-        for n in (60, 240, 1440):
-            ema = lp.ewm(span=n, adjust=False).mean().to_numpy()
-            out[f"ema_{n}"] = (g.logp - ema) / np.sqrt(L * n)
-        up = pd.Series(np.clip(g.r, 0, None))
-        dn = pd.Series(np.clip(-g.r, 0, None))
-        for n in (14, 210):
-            a = up.ewm(alpha=1 / n, adjust=False).mean().to_numpy()
-            b = dn.ewm(alpha=1 / n, adjust=False).mean().to_numpy()
-            out[f"rsi_{n}"] = a / (a + b + 1e-18) - 0.5
-        out["vr_short"] = np.log((self.L[60] + self.eps) / (self.L[1440] + self.eps))
-        out["vr_long"] = np.log((self.L[1440] + self.eps) / (self.L[30240] + self.eps))
-        s = pd.Series(g.high)
-        dh = s.groupby(g.tday).cummax().to_numpy()
-        dl = pd.Series(g.low).groupby(g.tday).cummin().to_numpy()
-        out["daypos"] = (g.close - dl) / np.maximum(dh - dl, 1e-9) - 0.5
-        ang = 2 * np.pi * g.mod / 1440
-        out["tod_sin"] = np.sin(ang)
-        out["tod_cos"] = np.cos(ang)
-        out["round50"] = np.mod(g.close, 50.0) / 50.0 - 0.5
-        for k in out:
-            out[k] = np.nan_to_num(np.clip(out[k], -50, 50))
-        return out
-
-    def matrix(self, pos: np.ndarray) -> np.ndarray:
-        return np.column_stack([self.X[k][pos] for k in FEATURES])
+    def matrix(self, pos: np.ndarray, names: list[str] | None = None) -> np.ndarray:
+        names = self.names if names is None else names
+        return np.column_stack([self.X[k][pos] for k in names]).astype(np.float64)
 
     def har_matrix(self, pos: np.ndarray) -> np.ndarray:
         cols = [np.ones(len(pos))]
         for w in HAR_WINDOWS:
             cols.append(np.log(self.L[w][pos] + self.eps))
-        n1440 = self.X["nr_1440"][pos]
+        n1440 = self.X["nr_1440"][pos].astype(np.float64)
         cols.append(np.clip(n1440, 0, None))
         cols.append(np.clip(n1440, None, 0))
-        cols.append(np.abs(self.X["nr_60"][pos]))
+        cols.append(np.abs(self.X["nr_60"][pos].astype(np.float64)))
         return np.column_stack(cols)
 
     # 将来区間 (pos, pos+h] の季節性の和。グリッド外（将来）は時刻から計算。
