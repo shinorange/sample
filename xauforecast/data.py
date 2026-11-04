@@ -227,7 +227,7 @@ def synthetic(days: int = 420, seed: int = 7, start: str = "2025-01-05 22:00",
     nd = tday.max() + 1
     lv = np.zeros(nd)
     for i in range(1, nd):
-        lv[i] = 0.97 * lv[i - 1] + 0.16 * rng.standard_normal()
+        lv[i] = 0.97 * lv[i - 1] + 0.075 * rng.standard_normal()  # 定常 sd ≈ 0.31（年率ボラ 約 0.55〜1.8 倍）
     hour_id = np.arange(n) // 60
     lh = np.zeros(hour_id.max() + 1)
     eps_h = rng.standard_normal(len(lh))

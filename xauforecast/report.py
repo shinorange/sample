@@ -452,8 +452,8 @@ def features_markdown(m) -> str:
     L = [f"# 特徴量（統計量）の予測力とモデル構成\n", f"- 学習データ末尾: {m.fit_end}",
          f"- 特徴量: {len(m.feature_names)} 個（" + "、".join(f"{g} {n}" for g, n in t['group'].value_counts().items()) + "）\n",
          "## ホライズン別のモデル構成\n",
-         "ボラ補正 = 勾配ブースティングによる HAR 残差の補正で、交差適合の log 実現分散の二乗誤差が何 % 減ったか。"
-         "方向の t 値は各予測器の交差適合での予測力（ゲート閾値を超えたものだけ採用）。\n"]
+         "ボラ補正 = 勾配ブースティングによる HAR 残差の補正で、前進型の検証での log 実現分散の二乗誤差が何 % 減ったか。"
+         "方向の t 値は各予測器の前進型の検証での予測力（ゲート閾値を超えたものだけ採用）。\n"]
     rows = []
     for h, hm in sorted(m.models.items()):
         r = {"label": f"{h}分" if h < 60 else f"{h // 60}時間", "vg": hm.vol_gain_pct, "vu": "採用" if hm.vol_gbm is not None else "-",

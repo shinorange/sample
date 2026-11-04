@@ -129,9 +129,7 @@ def compute_features(grid, f: np.ndarray, Cf: np.ndarray, L: dict, eps: float,
     add("dow_sin", np.sin(wang), "季節性")
     add("dow_cos", np.cos(wang), "季節性")
     ny = g.idx.tz_convert(NY)
-    mang = 2 * np.pi * (ny.dayofyear.to_numpy() / 365.25)
-    add("doy_sin", np.sin(mang), "季節性")
-    add("doy_cos", np.cos(mang), "季節性")
+    # 年内の時期（dayofyear）は使わない: 1〜2 年のデータでは「その時期のボラ水準」を暗記してしまうため
     dom = ny.day.to_numpy()
     add("turn_of_month", ((dom >= 27) | (dom <= 3)).astype(float), "季節性")
     add("session_elapsed", ((g.mod - 1080) % 1440) / 1440.0, "季節性")

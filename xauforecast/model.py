@@ -4,15 +4,15 @@
   1. ボラティリティ
      - 日中季節性 f(週内の分) × 水準 L。L はまず HAR 回帰（過去 15分〜21日の脱季節化実現分散）で予測し、
      - 約 150 個の全特徴量を使う勾配ブースティングで HAR の残差を補正する。
-       交差適合（時系列ブロック + エンバーゴ）で検証し、改善した場合だけ使用・縮小推定。
+       前進型の検証（過去データだけで学習→次の期間を予測、エンバーゴ付き）で改善した場合だけ使用・縮小推定。
      → 予測分散 σ_h² = L̂_h × Σ f(将来の各分)。週末・日次休場は自動的に分散ゼロ。
   2. 平均（方向）… 4 つの予測器をスタッキング
      - 線形（リッジ、全特徴量） / 勾配ブースティング（全特徴量）
      - 類似局面（kNN、主要 28 特徴量で過去の似た局面を探し、その後の値動きを平均）
      - 時間帯統計（週内の時間帯ごとの平均リターン）
-     各予測器は交差適合の検証で t > ゲート閾値 のときだけ採用し、非負最小二乗で重み付け。
+     各予測器は前進型の検証で t > ゲート閾値 のときだけ採用し、非負最小二乗で重み付け。
      どれも有意でなければドリフト 0（＝マーチンゲール）。
-  3. 分布: 交差適合の標準化残差（ボラ局面別のプール）で分位点・上昇確率（FHS）。
+  3. 分布: 前進型の検証で得た標準化残差（ボラ局面別のプール）で分位点・上昇確率（FHS）。
   4. 経路: 1 分ショック + ヒゲのブロック・ブートストラップ（モンテカルロ）で高安・到達確率。
 """
 from __future__ import annotations
@@ -85,7 +85,7 @@ class HorizonModel:
 
 
 class Forecaster:
-    def __init__(self, horizons=None, stride: int = 5, ridge: float = 1.0, gate_t: float = 3.0, n_folds: int = 3,
+    def __init__(self, horizons=None, stride: int = 5, ridge: float = 1.0, gate_t: float = 3.0, n_folds: int = 4,
                  use_gbm: bool = True, knn_k: int = 150, gbm_rows: int = 30000):
         self.horizons = list(horizons or HORIZONS)
         self.stride = stride
@@ -143,12 +143,15 @@ class Forecaster:
         Rx = np.apply_along_axis(rankdata, 0, Xs[:: max(1, n // 30000)]) if n > 0 else None
         rx_rows = np.arange(n)[:: max(1, n // 30000)]
 
-        # 時系列ブロックの交差適合（ラベル期間が重なる学習行は除外 = エンバーゴ）
+        # 前進型の検証（各ブロックを、それより前のデータだけで学習したモデルで予測）。
+        # 将来のデータで学習したモデルは誤差を過小評価するため、実際の予測と同じ「過去→未来」に限る。
+        # ラベル期間（最大 H 分）が重なる直前の行は学習から除外（エンバーゴ）。
         blocks = np.array_split(np.arange(n), self.n_folds)
         folds = []
-        for b in blocks:
-            lo, hi = P[b[0]] - H - 1, P[b[-1]] + H + 1
-            folds.append((np.where((P < lo) | (P > hi))[0], b))
+        oof = np.zeros(n, dtype=bool)
+        for b in blocks[1:]:
+            folds.append((np.where(P < P[b[0]] - H - 1)[0], b))
+            oof[b] = True
         nbr_oof = np.zeros((n, self.knn_k), dtype=np.int64)
         for tr, te in folds:
             trs = _sub(tr, 60000)
@@ -159,7 +162,7 @@ class Forecaster:
         self.analog = {"A_rows": fin, "time": grid.idx[P[fin]].as_unit("ns").asi8, "z": {}, "ret": {}}
 
         for h in self.horizons:
-            hm = self._fit_horizon(grid, fs, h, P, Xs, Xh, folds, nbr_oof, how, reg_col, Rx, rx_rows, verbose)
+            hm = self._fit_horizon(grid, fs, h, P, Xs, Xh, folds, oof, nbr_oof, how, reg_col, Rx, rx_rows, verbose)
             self.models[h] = hm
         return fs
 
@@ -176,7 +179,7 @@ class Forecaster:
         self.wick_up = (np.clip((np.log(grid.high[q1]) - top) / sd1, 0, 40) / c)[-200_000:].astype(np.float32)
         self.wick_dn = (np.clip((bot - np.log(grid.low[q1])) / sd1, 0, 40) / c)[-200_000:].astype(np.float32)
 
-    def _fit_horizon(self, grid, fs, h, P, Xs, Xh, folds, nbr_oof, how, reg_col, Rx, rx_rows, verbose) -> HorizonModel:
+    def _fit_horizon(self, grid, fs, h, P, Xs, Xh, folds, oof, nbr_oof, how, reg_col, Rx, rx_rows, verbose) -> HorizonModel:
         n = len(P)
         Ff = fs.Cf[P + h + 1] - fs.Cf[P + 1]
         valid = Ff > 0.05 * h
@@ -185,7 +188,7 @@ class Forecaster:
         y = np.log(RV / np.maximum(Ff, 1e-9) + fs.eps)
         n_eff_scale = min(1.0, self.stride / max(h, 1))
 
-        # ---------------- ボラ: HAR + GBM 残差補正（交差適合）
+        # ---------------- ボラ: HAR + GBM 残差補正（前進型の検証）
         har_oof = np.zeros(n)
         gv_oof = np.zeros(n)
         for k, (tr, te) in enumerate(folds):
@@ -197,26 +200,30 @@ class Forecaster:
                 m = _gbm(k).fit(Xs[s], y[s] - Xh[s] @ b)
                 gv_oof[te] = m.predict(Xs[te])
         v = valid
-        e0 = y[v] - har_oof[v]
+        vo = valid & oof  # 検証統計はすべて前進型の予測がある行だけで計算
+        e0 = y[vo] - har_oof[vo]
         scale, gain = 0.0, 0.0
-        if self.use_gbm and np.var(gv_oof[v]) > 0:
-            scale = float(np.clip(np.cov(e0, gv_oof[v])[0, 1] / np.var(gv_oof[v]), 0, 1))
-            gain = float(1 - np.mean((e0 - scale * gv_oof[v]) ** 2) / np.mean(e0 ** 2))
+        if self.use_gbm and np.var(gv_oof[vo]) > 0:
+            scale = float(np.clip(np.cov(e0, gv_oof[vo])[0, 1] / np.var(gv_oof[vo]), 0, 1))
+            gain = float(1 - np.mean((e0 - scale * gv_oof[vo]) ** 2) / np.mean(e0 ** 2))
         use_vg = gain > 0.005
         lhat_oof = har_oof + (scale * gv_oof if use_vg else 0.0)
-        res = y[v] - lhat_oof[v]
+        res = y[vo] - lhat_oof[vo]
         smear = float(np.mean(np.exp(res)))
-        sigma_oof = np.sqrt(np.exp(lhat_oof) * smear * np.maximum(Ff, 1e-9))
         b_full = _ridge(Xh[v], y[v], 1e-6)
         vol_gbm = None
+        lhat_in = Xh @ b_full
         if use_vg:
             s = _sub(np.where(v)[0], self.gbm_rows)
             vol_gbm = _gbm(99).fit(Xs[s], y[s] - Xh[s] @ b_full)
+            lhat_in = lhat_in + scale * vol_gbm.predict(Xs)
+        # 前進型の予測がない最初のブロックは学習内の予測で補う（方向モデルの学習用のみ）
+        sigma_oof = np.sqrt(np.exp(np.where(oof, lhat_oof, lhat_in)) * smear * np.maximum(Ff, 1e-9))
 
-        # ---------------- 平均: 4 予測器の交差適合 → スタッキング
+        # ---------------- 平均: 4 予測器の前進型の検証 → スタッキング
         z = ret / sigma_oof
         zt = np.clip(z, -10, 10)
-        zt = zt - zt[v].mean()
+        zt = zt - zt[vo].mean()
         zt_nan = np.where(v, zt, np.nan)
         comps = {c: np.zeros(n) for c in COMPONENTS}
         for k, (tr, te) in enumerate(folds):
@@ -228,21 +235,21 @@ class Forecaster:
                 comps["gbm"][te] = _gbm(10 + k).fit(Xs[s], zt[s]).predict(Xs[te])
             comps["analog"][te] = np.nan_to_num(np.nanmean(zt_nan[nbr_oof[te]], axis=1))
             comps["season"][te] = self._season_table(how[trv], zt[trv])[how[te]]
-        n_eff = v.sum() * n_eff_scale
-        comp_stats = {c: dict(zip(("ic", "t"), _ic_t(comps[c][v], zt[v], n_eff))) for c in COMPONENTS}
+        n_eff = vo.sum() * n_eff_scale
+        comp_stats = {c: dict(zip(("ic", "t"), _ic_t(comps[c][vo], zt[vo], n_eff))) for c in COMPONENTS}
         passing = [c for c in COMPONENTS if comp_stats[c]["t"] > self.gate_t and comp_stats[c]["ic"] > 0
                    and (c != "gbm" or self.use_gbm)]
         weights = {c: 0.0 for c in COMPONENTS}
         mu_oof = np.zeros(n)
         ic_s, t_s, active = 0.0, 0.0, False
         if passing:
-            M = np.column_stack([comps[c][v] for c in passing])
-            w, _ = nnls(M, zt[v])
+            M = np.column_stack([comps[c][vo] for c in passing])
+            w, _ = nnls(M, zt[vo])
             if w.sum() > 0:
                 for c, wi in zip(passing, w):
                     weights[c] = float(wi)
                 mu_oof = sum(weights[c] * comps[c] for c in passing)
-                ic_s, t_s = _ic_t(mu_oof[v], zt[v], n_eff)
+                ic_s, t_s = _ic_t(mu_oof[vo], zt[vo], n_eff)
                 active = t_s > self.gate_t
         if not active:
             weights = {c: 0.0 for c in COMPONENTS}
@@ -259,9 +266,9 @@ class Forecaster:
         self.analog["ret"][h] = np.where(v[fin], ret[fin], np.nan).astype(np.float32)
 
         # ---------------- 分布: ボラ局面別の残差プール
-        zr = (z - mu_oof)[v]
+        zr = (z - mu_oof)[vo]
         zr = zr - zr.mean()
-        rc = reg_col[v]
+        rc = reg_col[vo]
         cuts = np.quantile(rc, [1 / 3, 2 / 3])
         bucket = np.searchsorted(cuts, rc)
         pools = []
