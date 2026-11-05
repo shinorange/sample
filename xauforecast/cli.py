@@ -7,6 +7,7 @@
   forecast  任意の時点（既定: 最新足）から 1分〜24時間先を予測（テキスト + JSON + HTML）
   backtest  ウォークフォワード検証
   rules     トレードルールの探索（約 2,300 個を検証、過剰最適化を除外）
+  candles   大陽線・大陰線（値幅が取れる足）の直前に成り立つ統計量の条件を洗い出す
   live      データ更新 → 必要なら再学習 → 予測 を一定間隔で繰り返す
   all       stats + backtest + fit + forecast をまとめて実行
 """
@@ -201,6 +202,23 @@ def cmd_rules(args):
     print(f"保存: {out / 'rules.md'}, {out / 'rules.csv'}")
 
 
+def cmd_candles(args):
+    from .candles import analyze, candles_markdown
+
+    df = _load(args.data, args.tz, args.max_days)
+    tfs = tuple(int(x) for x in args.tf.split(","))
+    print(f"ローソク足の条件分析中…（時間足 {tfs} 分、大きな足 = 上位 {100 - args.q * 100:.0f}%）", flush=True)
+    res = analyze(df, tfs=tfs, q=args.q, is_frac=args.is_frac)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "candles.md").write_text(candles_markdown(res), encoding="utf-8")
+    for tf, r in res["tfs"].items():
+        for key in ("single", "direction", "hour_direction", "dir_leaves", "leaves"):
+            if r.get(key) is not None and len(r[key]):
+                r[key].to_csv(out / f"candles_{tf}m_{key}.csv", index=False)
+    print(f"保存: {out / 'candles.md'} ほか CSV")
+
+
 def cmd_live(args):
     data_path = Path(args.data)
     while True:
@@ -308,6 +326,13 @@ def main(argv=None):
     p.add_argument("--is-frac", type=float, default=0.6, help="探索に使う期間の割合（残りは検証）")
     p.add_argument("--bootstrap", type=int, default=1000, help="多重検定補正のブートストラップ回数")
     p.set_defaults(func=cmd_rules)
+
+    p = sub.add_parser("candles", help="大陽線・大陰線の直前に成り立つ統計量の条件を洗い出す")
+    common(p)
+    p.add_argument("--tf", default="15,60,240", help="時間足（分、カンマ区切り）")
+    p.add_argument("--q", type=float, default=0.9, help="大きな足の閾値（|z| の分位、0.9 = 上位 10%）")
+    p.add_argument("--is-frac", type=float, default=0.6, help="探索に使う期間の割合（残りは検証）")
+    p.set_defaults(func=cmd_candles)
 
     p = sub.add_parser("live", help="定期的に データ更新→予測")
     common(p)

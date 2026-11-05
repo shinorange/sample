@@ -215,3 +215,22 @@ def test_simulate_stop_and_target():
                  np.array([102.0, 102.0]), np.array([100, 100]), spread=0.3, slip=0.1)
     assert r["pnl_usd"][0] == pytest.approx(2.0 - 0.3)
     assert r["pnl_usd"][1] == pytest.approx(-2.0 - 0.3 - 0.1)
+
+
+# --------------------------------------------------------------------- candles
+def test_candle_conditions_null_and_planted():
+    from xauforecast.candles import analyze
+
+    # 優位性なし: 方向の条件は何も再現しない
+    r0 = analyze(synthetic(days=420, seed=7), tfs=(60,), verbose=False)["tfs"][60]
+    assert int(r0["hour_direction"]["replicated"].sum()) == 0
+    assert int(r0["direction"]["replicated"].sum()) == 0
+    # 値幅（上下問わず大きく動く）はボラの統計量で予測できる
+    big = r0["single"][(r0["single"].target == "big") & r0["single"]["replicated"]]
+    assert (big["group"] == "ボラ").any()
+    # 埋め込んだ優位性（アジアの方向にロンドン序盤が続く）は NY 3〜4 時の足で見つかる
+    r1 = analyze(synthetic(days=420, seed=7, edge=0.05), tfs=(60,), verbose=False)["tfs"][60]
+    hd = r1["hour_direction"]
+    rep = hd[hd["replicated"]]
+    assert len(rep) > 0 and set(rep["ny_hour"]) <= {3, 4}, rep[["ny_hour", "feature"]].head()
+    assert (rep["diff_is"] > 0).all()
